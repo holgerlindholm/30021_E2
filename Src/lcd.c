@@ -1,63 +1,30 @@
 #include "lcd.h"
 #include "charset.h"
+#include <string.h>
 
 /*****************************/
 /*** LCD Control Functions ***/
 /*****************************/
 void lcd_transmit_byte(uint8_t data) {
-    GPIOB->ODR &= ~(0x0001 << 6); // CS = 0 - Start Transmission
-    while(SPI_I2S_GetFlagStatus(SPI2, SPI_I2S_FLAG_TXE) != SET) { }
+    GPIOB->ODR &= ~(1u << 6);                                   /* CS = 0 */
+    while (SPI_I2S_GetFlagStatus(SPI2, SPI_I2S_FLAG_TXE) != SET) { }
     SPI_SendData8(SPI2, data);
-    while(SPI_I2S_GetFlagStatus(SPI2, SPI_I2S_FLAG_TXE) != SET) { }
-    GPIOB->ODR |=  (0x0001 << 6); // CS = 1 - End Transmission
+    while (SPI_I2S_GetFlagStatus(SPI2, SPI_I2S_FLAG_BSY) == SET) { }   /* wait until fully sent */
+    GPIOB->ODR |= (1u << 6);                                    /* CS = 1 */
 }
 
-void lcd_push_buffer(uint8_t* buffer)
+void lcd_push_buffer(uint8_t *buffer)
 {
-    int i = 0;
+    for (uint8_t page = 0; page < 4; page++)
+    {
+        GPIOA->ODR &= ~(1u << 8);          /* A0 = 0: command */
+        lcd_transmit_byte(0x00);           /* column low nibble */
+        lcd_transmit_byte(0x10);           /* column high nibble */
+        lcd_transmit_byte(0xB0 | page);    /* page address */
 
-    //page 0
-    GPIOA->ODR &= ~(0x0001 << 8); // A0 = 0 - Set Command
-    lcd_transmit_byte(0x00);      // set column low nibble 0
-    lcd_transmit_byte(0x10);      // set column hi  nibble 0
-    lcd_transmit_byte(0xB0);      // set page address  0
-
-    GPIOA->ODR |=  (0x0001 << 8); // A0 = 1 - Set Data
-    for(i=0; i<128; i++) {
-       lcd_transmit_byte(buffer[i]);
-    }
-
-    // page 1
-    GPIOA->ODR &= ~(0x0001 << 8); // A0 = 0 - Set Command
-    lcd_transmit_byte(0x00);      // set column low nibble 0
-    lcd_transmit_byte(0x10);      // set column hi  nibble 0
-    lcd_transmit_byte(0xB1);      // set page address  1
-
-    GPIOA->ODR |=  (0x0001 << 8); // A0 = 1 - Set Data
-    for( i = 128 ; i < 256 ; i++ ) {
-       lcd_transmit_byte(buffer[i]);
-    }
-
-    //page 2
-    GPIOA->ODR &= ~(0x0001 << 8); // A0 = 0 - Set Command
-    lcd_transmit_byte(0x00);      // set column low nibble 0
-    lcd_transmit_byte(0x10);      // set column hi  nibble 0
-    lcd_transmit_byte(0xB2);      // set page address  2
-
-    GPIOA->ODR |=  (0x0001 << 8); // A0 = 1 - Set Data
-    for(i=256; i<384; i++) {
-       lcd_transmit_byte(buffer[i]);
-    }
-
-    //page 3
-    GPIOA->ODR &= ~(0x0001 << 8); // A0 = 0 - Set Command
-    lcd_transmit_byte(0x00);      // set column low nibble 0
-    lcd_transmit_byte(0x10);      // set column hi  nibble 0
-    lcd_transmit_byte(0xB3);      // set page address  3
-
-    GPIOA->ODR |=  (0x0001 << 8); // A0 = 1 - Set Data
-    for(i=384; i<512; i++) {
-       lcd_transmit_byte(buffer[i]);
+        GPIOA->ODR |= (1u << 8);           /* A0 = 1: data */
+        for (uint16_t i = 0; i < 128; i++)
+            lcd_transmit_byte(buffer[page * 128 + i]);
     }
 }
 
@@ -188,9 +155,10 @@ void write_line_buff(uint8_t * linebuff, uint8_t * lcdbuff, uint8_t xoffset, uin
     //          Otherwise, it will be capped.
     if (scrollena > 0){
         for(uint8_t idx = 0; idx<LCD_LINE_SIZE; idx++){
-            lcdbuff[idx+yoffset*LCD_LINE_SIZE] = linebuff[(idx + xoffset) & LCD_LINE_BUFF_SIZE-1];
+        	linebuff[(idx + xoffset) & (LCD_LINE_BUFF_SIZE - 1)];
         }
-    }else{
+    }
+    else{
         memcpy(lcdbuff + xoffset+yoffset*LCD_LINE_SIZE, linebuff, sizeof(uint8_t) * LCD_LINE_SIZE-xoffset);
     }
 
@@ -205,3 +173,27 @@ void lcd_write_string(uint8_t * str, uint8_t * lcdBuff, uint8_t xoffset, uint8_t
     //  (horizontal scrolling is always disabled!)
     write_line_buff(lineBuff, lcdBuff, xoffset, yoffset, 0);
 }
+
+void lcd_clear_buffer(uint8_t *lcdBuff) {
+    memset(lcdBuff, 0x00, 512); // Clear all 512 bytes (128x32 display / 4 pages)
+}
+
+void lcd_clear_screen(void) {
+    uint8_t page;
+    uint8_t col;
+
+    for (page = 0; page < 4; page++) {
+        // Set Command Mode (A0 = 0)
+        GPIOA->ODR &= ~(0x0001 << 8);
+        lcd_transmit_byte(0x00);         // Column low nibble
+        lcd_transmit_byte(0x10);         // Column high nibble
+        lcd_transmit_byte(0xB0 | page);  // Page address (0xB0, 0xB1, 0xB2, 0xB3)
+
+        // Set Data Mode (A0 = 1)
+        GPIOA->ODR |= (0x0001 << 8);
+        for (col = 0; col < 128; col++) {
+            lcd_transmit_byte(0x00);
+        }
+    }
+}
+
