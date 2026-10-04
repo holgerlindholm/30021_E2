@@ -7,6 +7,7 @@
 #include "flash.h"
 #include "lcd.h"
 #include "string.h"
+#include <math.h>
 
 /* I2C1_SCL = PB8, I2C1_SDA = PB9 (AF4)
  * Devices on the bus: MMA7660FC accelerometer, M75BD (LM75-compatible) thermometer */
@@ -176,38 +177,73 @@ void exercise_4_1_internalGyro(void)
                 filt.z += (raw.z - filt.z) / 4;
             }
 
+
+            // filt = low-passed accelerometer (units don't matter, only direction)
+
             if (++count >= LCD_UPDATE_EVERY)
             {
-                const char    name[3] = { 'X', 'Y', 'Z' };
-                const int32_t val[3]  = { filt.x, filt.y, filt.z };
-                int32_t       tempMc;
-                bool          tempOk = LM75_ReadMilliC(&tempMc);
+                int32_t tempMc;
+                bool tempOk = LM75_ReadMilliC(&tempMc);
+
+                double roll = atan2(
+                    (double)filt.y,
+                    (double)filt.z
+                );
+
+                double pitch = atan2(
+                    -(double)filt.x,
+                    sqrt(
+                        (double)filt.y * filt.y +
+                        (double)filt.z * filt.z
+                    )
+                );
+
+                double rollDeg  = roll  * 180.0 / M_PI;
+                double pitchDeg = pitch * 180.0 / M_PI;
 
                 count = 0;
 
                 lcd_clear_buffer(fbuffer);
 
-                /* Rows 0-2: acceleration */
-                for (uint8_t row = 0; row < 3; row++)
+                /* Line 0: XYZ acceleration */
+                snprintf(line, sizeof(line), "X:%4ld Y:%4ld Z:%4ld",
+                         (long)filt.x,
+                         (long)filt.y,
+                         (long)filt.z);
+                lcd_write_string((uint8_t *)line, fbuffer, 0, 0);
+
+                /* Line 1: Pitch */
+                snprintf(line, sizeof(line), "Pitch: %6.1f deg", pitchDeg);
+                lcd_write_string((uint8_t *)line, fbuffer, 0, 1);
+
+                /* Line 2: Roll */
+                snprintf(line, sizeof(line), "Roll:  %6.1f deg", rollDeg);
+                lcd_write_string((uint8_t *)line, fbuffer, 0, 2);
+
+                /* Line 3: Temperature */
+                if (tempOk)
                 {
-                    snprintf(line, sizeof line, "%c: %5ld mg", name[row], (long)val[row]);
-                    lcd_write_string((uint8_t *)line, fbuffer, 0, row);
+                    snprintf(line, sizeof(line), "Temp: %6.2f C",tempMc / 1000.0);
+                }
+                else
+                {
+                    snprintf(line, sizeof(line), "Temp: sensor error");
                 }
 
-                /* Row 3: temperature */
-                if (tempOk)
-                    snprintf(line, sizeof line, "T: %c%ld.%03ld C",
-                             tempMc < 0 ? '-' : '+',
-                             labs(tempMc) / 1000, labs(tempMc) % 1000);
-                else
-                    snprintf(line, sizeof line, "T: no sensor");
                 lcd_write_string((uint8_t *)line, fbuffer, 0, 3);
 
                 lcd_push_buffer(fbuffer);
 
-                printf("X: %5ld  Y: %5ld  Z: %5ld mg  T: %s%ld.%03ld C\r\n",
-                       (long)filt.x, (long)filt.y, (long)filt.z,
-                       tempMc < 0 ? "-" : "", labs(tempMc) / 1000, labs(tempMc) % 1000);
+                printf("X: %5ld  Y: %5ld  Z: %5ld mg  "
+                       "Pitch: %.1f  Roll: %.1f  T: %s%ld.%03ld C\r\n",
+                       (long)filt.x,
+                       (long)filt.y,
+                       (long)filt.z,
+                       pitchDeg,
+                       rollDeg,
+                       tempMc < 0 ? "-" : "",
+                       labs(tempMc) / 1000,
+                       labs(tempMc) % 1000);
             }
         }
     }
