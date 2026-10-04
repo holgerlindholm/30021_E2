@@ -9,7 +9,8 @@
 int main(void) {
 	uart_init(9600);
 
-	exercise_4_1();
+	exercise_4_1_internalGyro();
+	//exercise_2_6();
 
 	while(1)
 	{

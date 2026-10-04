@@ -2,24 +2,31 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include "gpio.h"
 #include "flash.h"
 #include "lcd.h"
 #include "string.h"
 
-/* MMA7660FC on Nucleo-F302R8: I2C1_SCL = PB8, I2C1_SDA = PB9 (AF4) */
+/* I2C1_SCL = PB8, I2C1_SDA = PB9 (AF4)
+ * Devices on the bus: MMA7660FC accelerometer, M75BD (LM75-compatible) thermometer */
 
-#define MMA7660_ADDR   0x98u        /* 7-bit 0x4C << 1 */
-#define REG_XOUT       0x00u        /* X, Y, Z live at 0x00..0x02 */
-#define REG_MODE       0x07u
-#define ALERT_BIT      0x40u        /* set = sample was mid-update */
+/* 8-bit addresses (7-bit address << 1) */
+#define MMA7660_ADDR   0x98u        /* 7-bit 0x4C */
+#define LM75_ADDR      0x90u        /* 7-bit 0x48, A2:A1:A0 = 000. Do NOT use 100 (0x4C) */
+
+#define MMA_REG_XOUT   0x00u        /* X, Y, Z at 0x00..0x02 */
+#define MMA_REG_MODE   0x07u
+#define MMA_ALERT_BIT  0x40u        /* set = sample was mid-update */
+
+#define LM75_REG_TEMP  0x00u        /* 16-bit, read-only, MSB first */
 
 #define I2C1_TIMING    0x10420F13u  /* 100 kHz @ 8 MHz I2CCLK */
 #define I2C_TIMEOUT    100000u
 
 typedef struct { int32_t x, y, z; } Accel;   /* milli-g */
 
-/* ---------- I2C ---------- */
+/* ---------- I2C (shared by both devices) ---------- */
 static bool i2cWait(uint32_t flag, FlagStatus state)
 {
     uint32_t timeout = I2C_TIMEOUT;
@@ -64,10 +71,10 @@ void initI2C1(void)
     I2C_Cmd(I2C1, ENABLE);
 }
 
-static bool writeReg(uint8_t reg, uint8_t value)
+static bool writeReg(uint8_t addr, uint8_t reg, uint8_t value)
 {
     WAIT(I2C_FLAG_BUSY, RESET);
-    I2C_TransferHandling(I2C1, MMA7660_ADDR, 2,
+    I2C_TransferHandling(I2C1, addr, 2,
                          I2C_AutoEnd_Mode, I2C_Generate_Start_Write);
     WAIT(I2C_FLAG_TXIS, SET);
     I2C_SendData(I2C1, reg);
@@ -78,16 +85,16 @@ static bool writeReg(uint8_t reg, uint8_t value)
     return true;
 }
 
-static bool readRegs(uint8_t reg, uint8_t *buf, uint8_t len)
+static bool readRegs(uint8_t addr, uint8_t reg, uint8_t *buf, uint8_t len)
 {
     WAIT(I2C_FLAG_BUSY, RESET);
-    I2C_TransferHandling(I2C1, MMA7660_ADDR, 1,
+    I2C_TransferHandling(I2C1, addr, 1,
                          I2C_SoftEnd_Mode, I2C_Generate_Start_Write);
     WAIT(I2C_FLAG_TXIS, SET);
     I2C_SendData(I2C1, reg);
     WAIT(I2C_FLAG_TC, SET);
 
-    I2C_TransferHandling(I2C1, MMA7660_ADDR, len,
+    I2C_TransferHandling(I2C1, addr, len,
                          I2C_AutoEnd_Mode, I2C_Generate_Start_Read);
     for (uint8_t i = 0; i < len; i++)
     {
@@ -99,10 +106,10 @@ static bool readRegs(uint8_t reg, uint8_t *buf, uint8_t len)
     return true;
 }
 
-/* ---------- Sensor ---------- */
+/* ---------- MMA7660 accelerometer ---------- */
 bool MMA7660_Init(void)
 {
-    return writeReg(REG_MODE, 0x01);    /* active mode */
+    return writeReg(MMA7660_ADDR, MMA_REG_MODE, 0x01);    /* active mode */
 }
 
 /* Sign-extend 6-bit two's complement */
@@ -116,12 +123,29 @@ bool MMA7660_ReadMg(Accel *a)
 {
     uint8_t raw[3];
 
-    if (!readRegs(REG_XOUT, raw, 3) || ((raw[0] | raw[1] | raw[2]) & ALERT_BIT))
+    if (!readRegs(MMA7660_ADDR, MMA_REG_XOUT, raw, 3) ||
+        ((raw[0] | raw[1] | raw[2]) & MMA_ALERT_BIT))
         return false;
 
-    a->x = sext6(raw[0]) * 46.875;     /* 46.875 mg per count */
-    a->y = sext6(raw[1]) * 46.875;
-    a->z = sext6(raw[2]) * 46.875;
+    a->x = sext6(raw[0]) * 375 / 8;     /* 46.875 mg per count, integer math */
+    a->y = sext6(raw[1]) * 375 / 8;
+    a->z = sext6(raw[2]) * 375 / 8;
+    return true;
+}
+
+/* ---------- M75BD / LM75 thermometer ---------- */
+/* Temperature register: 11-bit two's complement, left-justified in 16 bits.
+ * Shift right 5 to get the signed count; each count = 0.125 C = 125 mC.
+ * Powers up in normal (continuous) mode, so no init is needed. */
+bool LM75_ReadMilliC(int32_t *milliC)
+{
+    uint8_t raw[2];
+
+    if (!readRegs(LM75_ADDR, LM75_REG_TEMP, raw, 2))
+        return false;
+
+    int16_t t = (int16_t)((raw[0] << 8) | raw[1]);
+    *milliC = (t >> 5) * 125;
     return true;
 }
 
@@ -152,24 +176,38 @@ void exercise_4_1_internalGyro(void)
                 filt.z += (raw.z - filt.z) / 4;
             }
 
-            /* Sample fast, but print and draw slowly */
             if (++count >= LCD_UPDATE_EVERY)
             {
                 const char    name[3] = { 'X', 'Y', 'Z' };
                 const int32_t val[3]  = { filt.x, filt.y, filt.z };
+                int32_t       tempMc;
+                bool          tempOk = LM75_ReadMilliC(&tempMc);
 
                 count = 0;
 
-                printf("X: %5ld mg  Y: %5ld mg  Z: %5ld mg\r\n",
-                       (long)filt.x, (long)filt.y, (long)filt.z);
-
                 lcd_clear_buffer(fbuffer);
+
+                /* Rows 0-2: acceleration */
                 for (uint8_t row = 0; row < 3; row++)
                 {
                     snprintf(line, sizeof line, "%c: %5ld mg", name[row], (long)val[row]);
                     lcd_write_string((uint8_t *)line, fbuffer, 0, row);
                 }
+
+                /* Row 3: temperature */
+                if (tempOk)
+                    snprintf(line, sizeof line, "T: %c%ld.%03ld C",
+                             tempMc < 0 ? '-' : '+',
+                             labs(tempMc) / 1000, labs(tempMc) % 1000);
+                else
+                    snprintf(line, sizeof line, "T: no sensor");
+                lcd_write_string((uint8_t *)line, fbuffer, 0, 3);
+
                 lcd_push_buffer(fbuffer);
+
+                printf("X: %5ld  Y: %5ld  Z: %5ld mg  T: %s%ld.%03ld C\r\n",
+                       (long)filt.x, (long)filt.y, (long)filt.z,
+                       tempMc < 0 ? "-" : "", labs(tempMc) / 1000, labs(tempMc) % 1000);
             }
         }
     }
