@@ -9,7 +9,7 @@
 int main(void) {
 	uart_init(9600);
 
-	exercise_5();
+	exercise_4_1();
 
 	while(1)
 	{

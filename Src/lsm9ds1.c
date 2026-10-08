@@ -111,7 +111,7 @@ uint16_t lsm9ds1_read16(uint8_t addr)
     GPIOB->ODR &= ~(1 << 6);            // CS low
     spi2_xfer(addr | 0x80);             // read command
     lsb = spi2_xfer(0x00);              // 1st byte = low register
-    msb = spi2_xfer(0x00);              // 2nd byte = high register (needs auto-increment)
+    msb = spi2_xfer(0x00);              // 2nd byte = high register
     while (SPI_I2S_GetFlagStatus(SPI2, SPI_I2S_FLAG_BSY) == SET) {}
     GPIOB->ODR |= (1 << 6);             // CS high
 
@@ -139,7 +139,6 @@ void lsm9ds1_write16(uint8_t addr, uint16_t data_in)
     while (SPI_I2S_GetFlagStatus(SPI2, SPI_I2S_FLAG_BSY) == SET) {}
     GPIOB->ODR |= (1 << 6);             // CS high
    }
-}
 
 // Returns 0 if OK, -1 if the magnetometer isn't found
 // We can change settings using the CTRL registers depending on how we want it to operate
