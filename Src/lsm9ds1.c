@@ -78,8 +78,6 @@ void init_spi_lsm9ds1(void) {
     SPI2->CR1 |= 0x0040; // Enable SPI2
 }
 
-/* ---------- Low-level SPI ---------- */
-
 // SPI always sends and receives at the same time.
 // Send one byte, return the byte that came in during that transfer.
 static uint8_t spi2_xfer(uint8_t tx)
@@ -136,7 +134,7 @@ void lsm9ds1_write(uint8_t addr, uint8_t data_in)
 
 #define MAG_AUTO_INC    0x40    // bit 6 of the SPI address byte: read next register automatically
 
-#define WHO_AM_I_M      0x0F    // should read 0x3D
+#define WHO_AM_I_M      0x0F    // should read 0x3D for magnetometer
 #define CTRL_REG1_M     0x20    // temp comp, performance mode XY, data rate
 #define CTRL_REG2_M     0x21    // full-scale range
 #define CTRL_REG3_M     0x22    // SPI mode, conversion mode
@@ -149,16 +147,17 @@ void lsm9ds1_write(uint8_t addr, uint8_t data_in)
 #define OUT_Z_L_M       0x2C    // high byte is 0x2D
 
 // Returns 0 if OK, -1 if the magnetometer isn't found
-// We can change settings using the CTRL registres depending on how we want it to operate
+// We can change settings using the CTRL registers depending on how we want it to operate
 int mag_init(void)
 {
     lsm9ds1_write(CTRL_REG3_M, 0x04);       // SIM=1 (allow SPI reads), MD=00 (continuous conversion)
     if (lsm9ds1_read8(WHO_AM_I_M) != 0x3D) return -1;   // check chip ID
 
+    // Configure the CTRL registers
     lsm9ds1_write(CTRL_REG1_M, 0xFC);       // temp comp on, ultra-high performance XY, 80 Hz
     lsm9ds1_write(CTRL_REG2_M, 0x00);       // +/-4 gauss
     lsm9ds1_write(CTRL_REG4_M, 0x0C);       // ultra-high performance Z
-    lsm9ds1_write(CTRL_REG5_M, 0x40);       // BDU on: low+high byte stay consistent
+    lsm9ds1_write(CTRL_REG5_M, 0x40);       // BDU on
     return 0;
 }
 
