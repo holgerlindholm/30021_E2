@@ -7,6 +7,7 @@ void exercise_4_1(void) {
 	uint16_t data_out16;
 
 	int16_t mag_x,mag_y,mag_z; //variables to hold magnetometer values
+	uint8_t scale = lsm9ds1_read8(CTRL_REG2_M);   // read the current range setting once
 
     if (mag_init() != 0) {
         printf("LSM9DS1 magnetometer not found\n");
@@ -20,9 +21,13 @@ void exercise_4_1(void) {
 //		data_out16 = lsm9ds1_read16(WHO_AM_I);
 //		printf("Received data = %X\n", data_out16);
 
-		mag_read_xyz(&x, &y, &z);
-		// +/-4 gauss => 0.14 mgauss/LSB
-		printf("X=%d Y=%d Z=%d (raw)\n", x, y, z);
+		// Read magnetometer data using adresses $mag_x
+		mag_read_xyz(&mag_x, &mag_y, &mag_z);
+		float x_mg = mag_raw_to_mgauss(mag_x, scale);
+		float y_mg = mag_raw_to_mgauss(mag_y, scale);
+		float z_mg = mag_raw_to_mgauss(mag_z, scale);
+
+		printf("X=%d Y=%d Z=%d (raw)\n", x_mg, y_mg, z_mg);
 
 		// lsm9ds1_write(WHO_AM_I, 0xAA);
 	}

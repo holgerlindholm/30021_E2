@@ -128,24 +128,6 @@ void lsm9ds1_write(uint8_t addr, uint8_t data_in)
     GPIOB->ODR |= (1 << 6);             // CS high
 }
 
-/* ---------- Magnetometer ---------- */
-// Register addresses: LSM9DS1 datasheet, magnetometer register map
-// Table 22. Magnetic sensor register address map
-
-#define MAG_AUTO_INC    0x40    // bit 6 of the SPI address byte: read next register automatically
-
-#define WHO_AM_I_M      0x0F    // should read 0x3D for magnetometer
-#define CTRL_REG1_M     0x20    // temp comp, performance mode XY, data rate
-#define CTRL_REG2_M     0x21    // full-scale range
-#define CTRL_REG3_M     0x22    // SPI mode, conversion mode
-#define CTRL_REG4_M     0x23    // performance mode Z
-#define CTRL_REG5_M     0x24    // block data update
-#define STATUS_REG_M    0x27    // bit 3 = new XYZ data ready
-
-#define OUT_X_L_M       0x28    // high byte is 0x29
-#define OUT_Y_L_M       0x2A    // high byte is 0x2B
-#define OUT_Z_L_M       0x2C    // high byte is 0x2D
-
 // Returns 0 if OK, -1 if the magnetometer isn't found
 // We can change settings using the CTRL registers depending on how we want it to operate
 int mag_init(void)
@@ -161,12 +143,27 @@ int mag_init(void)
     return 0;
 }
 
-// Raw readings (signed 16-bit)
+// Raw readings (signed 16-bit) using pointers
 void mag_read_xyz(int16_t *x, int16_t *y, int16_t *z)
 {
     while (!(lsm9ds1_read8(STATUS_REG_M) & 0x08)) {}   // wait until new XYZ data is ready
 
+    // Read each registers and store it to memory location pointed to by *x, *y and *z
     *x = (int16_t)lsm9ds1_read16(OUT_X_L_M | MAG_AUTO_INC);   // reads 0x28 + 0x29
     *y = (int16_t)lsm9ds1_read16(OUT_Y_L_M | MAG_AUTO_INC);   // reads 0x2A + 0x2B
     *z = (int16_t)lsm9ds1_read16(OUT_Z_L_M | MAG_AUTO_INC);   // reads 0x2C + 0x2D
 }
+
+// Convert a raw magnetometer reading to milligauss depening on scale
+// scale is located in FS[1:0] in CTRL_REG2_M (bit value 5 and 6)
+float mag_raw_to_mgauss(int16_t raw, uint8_t ctrl_reg2)
+{
+	// move bits 5 times to the right and only read last two significant bits
+    switch ((ctrl_reg2 >> 5) & 0x03) {   // FS[1:0] = bits 6:5
+        case 0:  return raw * 0.14f;     // +/-4 gauss
+        case 1:  return raw * 0.29f;     // +/-8 gauss
+        case 2:  return raw * 0.43f;     // +/-12 gauss
+        default: return raw * 0.58f;     // +/-16 gauss
+    }
+}
+
