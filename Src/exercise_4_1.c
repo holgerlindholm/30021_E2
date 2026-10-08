@@ -1,18 +1,29 @@
 #include "lsm9ds1.h"
 
 void exercise_4_1(void) {
-	init_spi_lsm9ds1();
+    init_spi_lsm9ds1();
 
-	uint8_t data_out8;
-	uint16_t data_out16;
-
-	int16_t mag_x,mag_y,mag_z; //variables to hold magnetometer values
-	uint8_t scale = lsm9ds1_read8(CTRL_REG2_M);   // read the current range setting once
+    int16_t mag_x, mag_y, mag_z;           // raw magnetometer values
+    int16_t off_x, off_y, off_z;           // offsets stored in the sensor
 
     if (mag_init() != 0) {
         printf("LSM9DS1 magnetometer not found\n");
         while (1);
     }
+
+    uint8_t scale = lsm9ds1_read8(CTRL_REG2_M);   // Currently it is set to +- 4gauss
+
+    // For testing read and write
+	uint8_t data_out8;
+	uint16_t data_out16;
+
+    // Magnetometer calibration: rotate the board in all directions while this runs
+    printf("Rotate the board in all directions...\n");
+    // This calibrates and saves the offsets to the offset registers
+    mag_calibrate(800); // about 10 s at 80 Hz (We can change sampling rate using Table: 111
+
+    mag_read_offsets(&off_x, &off_y, &off_z);
+    printf("Offsets: X=%d Y=%d Z=%d\n", off_x, off_y, off_z); // Check that it is non zero
 
 	while (1) {
 //		data_out8 = lsm9ds1_read8(WHO_AM_I);

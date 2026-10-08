@@ -128,6 +128,19 @@ void lsm9ds1_write(uint8_t addr, uint8_t data_in)
     GPIOB->ODR |= (1 << 6);             // CS high
 }
 
+// Write two consecutive registers in one transaction (low byte first, then high byte)
+// Write 2nd byte to addr+1
+void lsm9ds1_write16(uint8_t addr, uint16_t data_in)
+{
+	GPIOB->ODR &= ~(1 << 6);            // CS low
+    spi2_xfer((addr & 0x3F) | MAG_AUTO_INC);            // bit 7 = 0 (write), bit 6 = 1 (auto-increment)
+    spi2_xfer(data_in & 0xFF);                          // low byte  -> addr
+    spi2_xfer((data_in >> 8) & 0xFF);                   // high byte -> addr + 1
+    while (SPI_I2S_GetFlagStatus(SPI2, SPI_I2S_FLAG_BSY) == SET) {}
+    GPIOB->ODR |= (1 << 6);             // CS high
+   }
+}
+
 // Returns 0 if OK, -1 if the magnetometer isn't found
 // We can change settings using the CTRL registers depending on how we want it to operate
 int mag_init(void)
@@ -160,10 +173,55 @@ float mag_raw_to_mgauss(int16_t raw, uint8_t ctrl_reg2)
 {
 	// move bits 5 times to the right and only read last two significant bits
     switch ((ctrl_reg2 >> 5) & 0x03) {   // FS[1:0] = bits 6:5
+    	// Sensititity values found in Section 2.1 Sensor characteristics
         case 0:  return raw * 0.14f;     // +/-4 gauss
         case 1:  return raw * 0.29f;     // +/-8 gauss
         case 2:  return raw * 0.43f;     // +/-12 gauss
         default: return raw * 0.58f;     // +/-16 gauss
     }
+}
+
+// Write the offsets into the sensor. It subtracts them from every reading.
+void mag_write_offsets(int16_t x, int16_t y, int16_t z)
+{
+    lsm9ds1_write16(OFFSET_X_REG_L_M, x);   // 0x05 + 0x06
+    lsm9ds1_write16(OFFSET_Y_REG_L_M, y);   // 0x07 + 0x08
+    lsm9ds1_write16(OFFSET_Z_REG_L_M, z);   // 0x09 + 0x0A
+}
+
+// Read the offsets currently stored in the sensor
+void mag_read_offsets(int16_t *x, int16_t *y, int16_t *z)
+{
+    *x = (int16_t)lsm9ds1_read16(OFFSET_X_REG_L_M | MAG_AUTO_INC);   // 0x05 + 0x06
+    *y = (int16_t)lsm9ds1_read16(OFFSET_Y_REG_L_M | MAG_AUTO_INC);   // 0x07 + 0x08
+    *z = (int16_t)lsm9ds1_read16(OFFSET_Z_REG_L_M | MAG_AUTO_INC);   // 0x09 + 0x0A
+}
+
+// Function to find minimin and maximim magnetometer value whilst rotating the sensor
+// It is expected that the center between the min and max values when rotating the sensor should be zero
+void mag_calibrate(uint32_t samples)
+{
+    int16_t min[3] = { 32767,  32767,  32767};
+    int16_t max[3] = {-32768, -32768, -32768};
+    int16_t v[3];
+    int16_t off[3];
+    int i;
+    printf("Rotate in all directions \n");
+    mag_write_offsets(0, 0, 0);                 // clear old offsets so we see uncorrected data
+    mag_read_xyz(&v[0], &v[1], &v[2]);          // discard one sample that may still have the old offset
+
+    for (uint32_t n = 0; n < samples; n++) {
+        mag_read_xyz(&v[0], &v[1], &v[2]);
+        for (i = 0; i < 3; i++) {
+            if (v[i] < min[i]) min[i] = v[i];
+            if (v[i] > max[i]) max[i] = v[i];
+        }
+    }
+
+    for (i = 0; i < 3; i++) {
+        off[i] = (int16_t)(((int32_t)max[i] + min[i]) / 2);   // center of the range
+    }
+    printf("Done calibrating\n");
+    mag_write_offsets(off[0], off[1], off[2]);
 }
 
