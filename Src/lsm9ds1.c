@@ -78,64 +78,96 @@ void init_spi_lsm9ds1(void) {
     SPI2->CR1 |= 0x0040; // Enable SPI2
 }
 
+/* ---------- Low-level SPI ---------- */
+
+// SPI always sends and receives at the same time.
+// Send one byte, return the byte that came in during that transfer.
+static uint8_t spi2_xfer(uint8_t tx)
+{
+    while (SPI_I2S_GetFlagStatus(SPI2, SPI_I2S_FLAG_TXE) != SET) {}   // wait until TX buffer is empty
+    SPI_SendData8(SPI2, tx);                                          // start transfer
+    while (SPI_I2S_GetFlagStatus(SPI2, SPI_I2S_FLAG_RXNE) != SET) {} // wait until a byte has arrived
+    return SPI_ReceiveData8(SPI2);                                    // read it (also clears the flag)
+}
+
+// Read one register
 uint8_t lsm9ds1_read8(uint8_t addr)
 {
-    uint8_t data_out8;
+    uint8_t data;
 
-    // Enable chip select via PB6 (Set low)
-    GPIOB->ODR &= ~(1 << 6);       // CS low
-    // Send register address + read bit
-    while (SPI_I2S_GetFlagStatus(SPI2, SPI_I2S_FLAG_TXE) != SET) {}
-    SPI_SendData8(SPI2, addr | 0x80);
+    GPIOB->ODR &= ~(1 << 6);            // CS low = start transaction
+    spi2_xfer(addr | 0x80);             // bit 7 = 1 means "read" (reply byte is junk, discard it)
+    data = spi2_xfer(0x00);             // send dummy byte so the sensor can clock the data out
+    while (SPI_I2S_GetFlagStatus(SPI2, SPI_I2S_FLAG_BSY) == SET) {}   // wait until SPI is fully done
+    GPIOB->ODR |= (1 << 6);             // CS high = end transaction
 
-    // Send empty byte to enable clock
-    SPI_SendData8(SPI2, 0x00);
-    data_out8 = SPI_ReceiveData8(SPI2);
-    while (SPI_I2S_GetFlagStatus(SPI2, SPI_I2S_FLAG_RXNE) != SET) {}
-    GPIOB->ODR |= (1 << 6);        // CS high
-
-    return data_out8;
+    return data;
 }
 
+// Read two consecutive registers (low byte first, then high byte)
+// For the magnetometer, OR 0x40 into addr so the second byte comes from addr+1
 uint16_t lsm9ds1_read16(uint8_t addr)
 {
-    uint16_t data_out16;
-    uint8_t data_lsb;
-    uint8_t data_msb = 0x00;
+    uint8_t lsb, msb;
 
-    // Transmit
-    GPIOB->ODR &= ~(0x0001 << 6);       // CS low
-    // Send register address + read bit
-    while (SPI_I2S_GetFlagStatus(SPI2, SPI_I2S_FLAG_TXE) != SET) {}
-    SPI_SendData8(SPI2, addr | 0x80);
-//    SPI_ReceiveData8(SPI2); // Don't care about first received byte
+    GPIOB->ODR &= ~(1 << 6);            // CS low
+    spi2_xfer(addr | 0x80);             // read command
+    lsb = spi2_xfer(0x00);              // 1st byte = low register
+    msb = spi2_xfer(0x00);              // 2nd byte = high register (needs auto-increment)
+    while (SPI_I2S_GetFlagStatus(SPI2, SPI_I2S_FLAG_BSY) == SET) {}
+    GPIOB->ODR |= (1 << 6);             // CS high
 
-    // Send empty byte to enable clock
-    SPI_SendData8(SPI2, 0x00);
-    data_lsb = SPI_ReceiveData8(SPI2);
-//    while (SPI_I2S_GetFlagStatus(SPI2, SPI_I2S_FLAG_TXE) != SET) {}
-    SPI_SendData8(SPI2, 0x00);
-	data_msb = SPI_ReceiveData8(SPI2);
-
-	while (SPI_I2S_GetFlagStatus(SPI2, SPI_I2S_FLAG_RXNE) != SET) {}
-    GPIOB->ODR |= (0x0001 << 6);        // CS high
-
-    printf("msb = %X\t",data_msb);
-    printf("lsb = %X\t", data_lsb);
-    data_out16 = (data_msb << 8) + data_lsb;
-
-    return data_out16;
+    return ((uint16_t)msb << 8) | lsb;  // combine into 16 bits
 }
 
-void lsm9ds1_write(uint8_t addr, uint8_t data_in) {
-    // Transmit
-    GPIOB->ODR &= ~(0x0001 << 6);
-    // Send address byte
-    while (SPI_I2S_GetFlagStatus(SPI2, SPI_I2S_FLAG_TXE) != SET) {}
-    SPI_SendData8(SPI2, addr);
-    // Send data_in to lsm9ds1
-	SPI_SendData8(SPI2, data_in);
-	while (SPI_I2S_GetFlagStatus(SPI2, SPI_I2S_FLAG_TXE) != SET) {}
+// Write one register
+void lsm9ds1_write(uint8_t addr, uint8_t data_in)
+{
+    GPIOB->ODR &= ~(1 << 6);            // CS low
+    spi2_xfer(addr & 0x7F);             // bit 7 = 0 means "write"
+    spi2_xfer(data_in);                 // value to write
+    while (SPI_I2S_GetFlagStatus(SPI2, SPI_I2S_FLAG_BSY) == SET) {}
+    GPIOB->ODR |= (1 << 6);             // CS high
+}
 
-    GPIOB->ODR |= (0x0001 << 6);        // CS high
+/* ---------- Magnetometer ---------- */
+// Register addresses: LSM9DS1 datasheet, magnetometer register map
+// Table 22. Magnetic sensor register address map
+
+#define MAG_AUTO_INC    0x40    // bit 6 of the SPI address byte: read next register automatically
+
+#define WHO_AM_I_M      0x0F    // should read 0x3D
+#define CTRL_REG1_M     0x20    // temp comp, performance mode XY, data rate
+#define CTRL_REG2_M     0x21    // full-scale range
+#define CTRL_REG3_M     0x22    // SPI mode, conversion mode
+#define CTRL_REG4_M     0x23    // performance mode Z
+#define CTRL_REG5_M     0x24    // block data update
+#define STATUS_REG_M    0x27    // bit 3 = new XYZ data ready
+
+#define OUT_X_L_M       0x28    // high byte is 0x29
+#define OUT_Y_L_M       0x2A    // high byte is 0x2B
+#define OUT_Z_L_M       0x2C    // high byte is 0x2D
+
+// Returns 0 if OK, -1 if the magnetometer isn't found
+// We can change settings using the CTRL registres depending on how we want it to operate
+int mag_init(void)
+{
+    lsm9ds1_write(CTRL_REG3_M, 0x04);       // SIM=1 (allow SPI reads), MD=00 (continuous conversion)
+    if (lsm9ds1_read8(WHO_AM_I_M) != 0x3D) return -1;   // check chip ID
+
+    lsm9ds1_write(CTRL_REG1_M, 0xFC);       // temp comp on, ultra-high performance XY, 80 Hz
+    lsm9ds1_write(CTRL_REG2_M, 0x00);       // +/-4 gauss
+    lsm9ds1_write(CTRL_REG4_M, 0x0C);       // ultra-high performance Z
+    lsm9ds1_write(CTRL_REG5_M, 0x40);       // BDU on: low+high byte stay consistent
+    return 0;
+}
+
+// Raw readings (signed 16-bit)
+void mag_read_xyz(int16_t *x, int16_t *y, int16_t *z)
+{
+    while (!(lsm9ds1_read8(STATUS_REG_M) & 0x08)) {}   // wait until new XYZ data is ready
+
+    *x = (int16_t)lsm9ds1_read16(OUT_X_L_M | MAG_AUTO_INC);   // reads 0x28 + 0x29
+    *y = (int16_t)lsm9ds1_read16(OUT_Y_L_M | MAG_AUTO_INC);   // reads 0x2A + 0x2B
+    *z = (int16_t)lsm9ds1_read16(OUT_Z_L_M | MAG_AUTO_INC);   // reads 0x2C + 0x2D
 }
