@@ -9,4 +9,4 @@
 | SCL                 | SCK       | D13 / PB13    |
 | SDO M + SDO AG      | MISO      | D12 / PB14    |
 | CS AG               | CS        | D10 / PB6     |
-| CS M                | GPIO???   | D??? / P???   |
+| CS M                | D6        | D6 / PB10     |

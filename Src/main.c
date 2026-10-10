@@ -5,6 +5,7 @@
 
 #include "openlog.h"
 #include "exercises.h"
+#include "30010_io.h"
 
 int main(void) {
 	uart_init(9600);
