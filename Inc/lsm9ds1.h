@@ -248,9 +248,10 @@ void     mag_calibrate(uint32_t samples);   // rotate the board by hand while th
 #define LSM9DS1_INT_THS_L_M        0x32U
 #define LSM9DS1_INT_THS_H_M        0x33U
 
-// Public functions
+// SPI INIT, READ AND WRITE //
 void init_spi_lsm9ds1(void);
 int init_AG(void);
+uint8_t get_AG_status(void);
 int16_t read_temp(void);
 void read_gy(int16_t *value);
 void read_xl(int16_t *value);

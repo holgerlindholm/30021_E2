@@ -2,9 +2,17 @@
 
 void exercise_4_1(void) {
     init_spi_lsm9ds1();
+    init_AG();
 
+    uint8_t AG_status;
+    int16_t temp_raw, data_raw_xl[3], data_raw_gy[3];
+	int16_t offset_gy_raw[3], offset_xl_raw[3];
     int16_t mag_x, mag_y, mag_z;           // raw magnetometer values
     int16_t off_x, off_y, off_z;           // offsets stored in the sensor
+
+	float temp;
+	float xl_x, xl_y, xl_z;
+	float gy_x, gy_y, gy_z;
 
     if (mag_init() != 0) {
         printf("LSM9DS1 magnetometer not found\n");
@@ -58,25 +66,36 @@ void exercise_4_1(void) {
     printf("Offsets: X=%d Y=%d Z=%d\n", off_x, off_y, off_z); // Check that it is non zero
 
 	while (1) {
-		// Read values from lsm9ds1
-		temp_raw = read_temp();
-		read_xl(data_raw_xl);
-		read_gy(data_raw_gy);
+		AG_status = get_AG_status();
 
-		// Convert values from int16 to float
-		temp = temp_raw_to_float(temp_raw);
+		// Read values from temperature sensor
+		if (AG_status & 0x04) {
+			temp_raw = read_temp();
 
-		xl_x = fs4g_to_mg(data_raw_xl[0] - offset_xl_raw[0]);
-		xl_y = fs4g_to_mg(data_raw_xl[1] - offset_xl_raw[1]);
-		xl_z = fs4g_to_mg(data_raw_xl[2] - offset_xl_raw[2]);
+			// Convert values from int16 to float
+			temp = temp_raw_to_float(temp_raw);
+			printf("Temperature = %2.2f[°C]\n",temp);
+		}
 
-		gy_x = fs2000dps_to_mdps(data_raw_gy[0] - offset_gy_raw[0]);
-		gy_y = fs2000dps_to_mdps(data_raw_gy[1] - offset_gy_raw[1]);
-		gy_z = fs2000dps_to_mdps(data_raw_gy[2] - offset_gy_raw[2]);
+		// Read values from Gyroscope
+		if (AG_status & 0x02) {
+			read_gy(data_raw_gy);
 
-		printf("Temperature = %2.2f[°C]\n",temp);
-		printf("Accelerometer readings\tX = %4.2f [mg]\t Y = %4.2f [mg]\t Z = %4.2f [mg]\n", xl_x, xl_y, xl_z);
-		printf("Gyro readings\tX = %4.2f [mdps]\t Y = %4.2f [mdps]\t Z = %4.2f [mdps]\n", gy_x, gy_y, gy_z);
+			gy_x = fs2000dps_to_mdps(data_raw_gy[0] - offset_gy_raw[0]);
+			gy_y = fs2000dps_to_mdps(data_raw_gy[1] - offset_gy_raw[1]);
+			gy_z = fs2000dps_to_mdps(data_raw_gy[2] - offset_gy_raw[2]);
+
+			printf("Gyroscope readings\tX = %4.2f [mdps]\t Y = %4.2f [mdps]\t Z = %4.2f [mdps]\n", gy_x, gy_y, gy_z);
+		}
+
+		// Read values from Accelerometer
+		if (AG_status & 0x01) {
+			read_xl(data_raw_xl);
+			xl_x = fs4g_to_mg(data_raw_xl[0] - offset_xl_raw[0]);
+			xl_y = fs4g_to_mg(data_raw_xl[1] - offset_xl_raw[1]);
+			xl_z = fs4g_to_mg(data_raw_xl[2] - offset_xl_raw[2]);
+			printf("Accelerometer readings\tX = %4.2f [mg]\t Y = %4.2f [mg]\t Z = %4.2f [mg]\n", xl_x, xl_y, xl_z);
+		}
 
 		// Read magnetometer data using adresses $mag_x
 		mag_read_xyz(&mag_x, &mag_y, &mag_z);

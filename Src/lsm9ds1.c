@@ -1,9 +1,8 @@
 #include "lsm9ds1.h"
-#include "lsm9ds1_reg.h"
+//#include "lsm9ds1_reg.h"
 
 <<<<<<< HEAD
 // Initialize private functions.
-static uint8_t get_AG_status(void);
 static uint8_t M_read8(uint8_t addr);
 static uint8_t AG_read8(uint8_t addr);
 static void M_write(uint8_t addr, uint8_t data_in);
@@ -390,6 +389,150 @@ void init_spi_lsm9ds1(void) {
 	SPI2->CR1 |= 0x0040; // Enable SPI2
 }
 
+// Returns 0 if OK, -1 if the magnetometer isn't found
+// We can change settings using the CTRL registers depending on how we want it to operate
+int mag_init(void)
+{
+    lsm9ds1_write(CTRL_REG3_M, 0x04);       // SIM=1 (allow SPI reads), MD=00 (continuous conversion)
+    if (lsm9ds1_read8(WHO_AM_I_M) != 0x3D) return -1;   // check chip ID
+
+    // Configure the CTRL registers
+    lsm9ds1_write(CTRL_REG1_M, 0xFC);       // temp comp on, ultra-high performance XY, 80 Hz
+    lsm9ds1_write(CTRL_REG2_M, 0x00);       // +/-4 gauss
+    lsm9ds1_write(CTRL_REG4_M, 0x0C);       // ultra-high performance Z
+    lsm9ds1_write(CTRL_REG5_M, 0x40);       // BDU on
+    return 0;
+}
+
+int init_AG(void) {
+
+//	//------------
+//	// Register 1
+//	// Set Gyroscope scale = 2000 dps | 0x18
+//	AG_write(LSM9DS1_CTRL_REG1_G, LSM9DS1_2000dps);
+//	// Set Gyro filter bandwidth = Ultra light | 0x03
+//	AG_write(LSM9DS1_CTRL_REG1_G, LSM9DS1_LP_ULTRA_LIGHT);
+//	// Set Gyro output data rate = 59.5Hz | 0x40
+//	AG_write(LSM9DS1_CTRL_REG1_G, 0x40);
+//
+//	//------------
+//	// Register 2
+//	// Set out selection? | 0x02
+//	AG_write(LSM9DS1_CTRL_REG2_G, 0x02);
+//
+//	//------------
+//	// Register 3
+//	// Set Gyro High pass filter bandwith = Medium | 0x05
+//	AG_write(LSM9DS1_CTRL_REG3_G, LSM9DS1_HP_MEDIUM);
+//	// Enable Gyro high pass filter | 0x40
+//	AG_write(LSM9DS1_CTRL_REG3_G, 0x40);
+//	// Angular rate sensor disable low power mode | 0x00
+//	AG_write(LSM9DS1_CTRL_REG3_G, 0x00);
+//
+//	//------------
+//	// Register 6
+//	// Set Accelerometer scale = 4g | 0x10
+//	AG_write(LSM9DS1_CTRL_REG6_XL, LSM9DS1_4g);
+//	// Accelerometer filter bandwidth anti-alias = Auto | 0x00
+//	AG_write(LSM9DS1_CTRL_REG6_XL, LSM9DS1_AUTO);
+//	// Set Accelerometer output data rate = 50Hz | 0x40
+//	AG_write(LSM9DS1_CTRL_REG6_XL, 0x40);
+//
+//	//------------
+//	// Register 7
+//	// Set filter Low pass bandwith = ODR/50 | 0x80
+//	AG_write(LSM9DS1_CTRL_REG7_XL, LSM9DS1_LP_ODR_DIV_50);
+//	//Set filter out path = Low pass out | 0x00
+//	AG_write(LSM9DS_CTRL_REG7_XL, LSM9DS1_LP_OUT);
+	// Check ID
+	if (AG_read8(LSM9DS1_WHO_AM_I) != LSM9DS1_IMU_ID) return -1;
+
+	// Set Gyroscope, scale = 2000 dps, filter bandwith = ultra light, output data rate = 59.5Hz
+	AG_write(LSM9DS1_CTRL_REG1_G, 0x5A);
+
+	// Set gyroscope out selection
+	AG_write(LSM9DS1_CTRL_REG2_G, 0x02);
+
+	// Set Gyroscope Enable, HP filter = Medium, Disable low power mode.
+	AG_write(LSM9DS1_CTRL_REG3_G, 0x45);
+
+	// Set Accelerometer scale = 4g, bandwidth anti-alias = auto, output data rate = 50Hz
+	AG_write(LSM9DS1_CTRL_REG6_XL, 0x50);
+
+	//Set Accelerometer LP filter out, LP Bandwith = ODR/50
+	AG_write(LSM9DS1_CTRL_REG7_XL, 0x80);
+
+	// Read measurement from temperature, gyroscope and accelerometer, to discard initial value.
+	int16_t temp_buff[3];
+	read_temp();
+	read_gy(temp_buff);
+	read_xl(temp_buff);
+
+	return 0;
+}
+
+// SPI always sends and receives at the same time.
+// Send one byte, return the byte that came in during that transfer.
+static uint8_t spi2_xfer(uint8_t tx)
+{
+    while (SPI_I2S_GetFlagStatus(SPI2, SPI_I2S_FLAG_TXE) != SET) {}   // wait until TX buffer is empty
+    SPI_SendData8(SPI2, tx);                                          // start transfer
+    while (SPI_I2S_GetFlagStatus(SPI2, SPI_I2S_FLAG_RXNE) != SET) {} // wait until a byte has arrived
+    return SPI_ReceiveData8(SPI2);                                    // read it (also clears the flag)
+}
+
+// Read one register
+uint8_t lsm9ds1_read8(uint8_t addr)
+{
+    uint8_t data;
+
+    GPIOB->ODR &= ~(1 << 6);            // CS low = start transaction
+    spi2_xfer(addr | 0x80);             // bit 7 = 1 means "read" (reply byte is junk, discard it)
+    data = spi2_xfer(0x00);             // send dummy byte so the sensor can clock the data out
+    while (SPI_I2S_GetFlagStatus(SPI2, SPI_I2S_FLAG_BSY) == SET) {}   // wait until SPI is fully done
+    GPIOB->ODR |= (1 << 6);             // CS high = end transaction
+
+    return data;
+}
+
+// Read two consecutive registers (low byte first, then high byte)
+// For the magnetometer, OR 0x40 into addr so the second byte comes from addr+1
+uint16_t lsm9ds1_read16(uint8_t addr)
+{
+    uint8_t lsb, msb;
+
+    GPIOB->ODR &= ~(1 << 6);            // CS low
+    spi2_xfer(addr | 0x80);             // read command
+    lsb = spi2_xfer(0x00);              // 1st byte = low register
+    msb = spi2_xfer(0x00);              // 2nd byte = high register
+    while (SPI_I2S_GetFlagStatus(SPI2, SPI_I2S_FLAG_BSY) == SET) {}
+    GPIOB->ODR |= (1 << 6);             // CS high
+
+    return ((uint16_t)msb << 8) | lsb;  // combine into 16 bits
+}
+
+// Write one register
+void lsm9ds1_write(uint8_t addr, uint8_t data_in)
+{
+    GPIOB->ODR &= ~(1 << 6);            // CS low
+    spi2_xfer(addr & 0x7F);             // bit 7 = 0 means "write"
+    spi2_xfer(data_in);                 // value to write
+    while (SPI_I2S_GetFlagStatus(SPI2, SPI_I2S_FLAG_BSY) == SET) {}
+    GPIOB->ODR |= (1 << 6);             // CS high
+}
+
+// Write two consecutive registers in one transaction (low byte first, then high byte)
+// Write 2nd byte to addr+1
+void lsm9ds1_write16(uint8_t addr, uint16_t data_in)
+{
+	GPIOB->ODR &= ~(1 << 6);            // CS low
+    spi2_xfer((addr & 0x3F) | MAG_AUTO_INC);            // bit 7 = 0 (write), bit 6 = 1 (auto-increment)
+    spi2_xfer(data_in & 0xFF);                          // low byte  -> addr
+    spi2_xfer((data_in >> 8) & 0xFF);                   // high byte -> addr + 1
+    while (SPI_I2S_GetFlagStatus(SPI2, SPI_I2S_FLAG_BSY) == SET) {}
+    GPIOB->ODR |= (1 << 6);             // CS high
+   }
+
 uint8_t M_read8(uint8_t addr) {
 	uint8_t data_out8;
 
@@ -462,71 +605,73 @@ void AG_write(uint8_t addr, uint8_t data_in) {
 	GPIOB->ODR |= (1 << 6);
 }
 
-int init_AG(void) {
+// Raw readings (signed 16-bit) using pointers
+void mag_read_xyz(int16_t *x, int16_t *y, int16_t *z)
+{
+    while (!(lsm9ds1_read8(STATUS_REG_M) & 0x08)) {}   // wait until new XYZ data is ready
 
-//	//------------
-//	// Register 1
-//	// Set Gyroscope scale = 2000 dps | 0x18
-//	AG_write(LSM9DS1_CTRL_REG1_G, LSM9DS1_2000dps);
-//	// Set Gyro filter bandwidth = Ultra light | 0x03
-//	AG_write(LSM9DS1_CTRL_REG1_G, LSM9DS1_LP_ULTRA_LIGHT);
-//	// Set Gyro output data rate = 59.5Hz | 0x40
-//	AG_write(LSM9DS1_CTRL_REG1_G, 0x40);
-//
-//	//------------
-//	// Register 2
-//	// Set out selection? | 0x02
-//	AG_write(LSM9DS1_CTRL_REG2_G, 0x02);
-//
-//	//------------
-//	// Register 3
-//	// Set Gyro High pass filter bandwith = Medium | 0x05
-//	AG_write(LSM9DS1_CTRL_REG3_G, LSM9DS1_HP_MEDIUM);
-//	// Enable Gyro high pass filter | 0x40
-//	AG_write(LSM9DS1_CTRL_REG3_G, 0x40);
-//	// Angular rate sensor disable low power mode | 0x00
-//	AG_write(LSM9DS1_CTRL_REG3_G, 0x00);
-//
-//	//------------
-//	// Register 6
-//	// Set Accelerometer scale = 4g | 0x10
-//	AG_write(LSM9DS1_CTRL_REG6_XL, LSM9DS1_4g);
-//	// Accelerometer filter bandwidth anti-alias = Auto | 0x00
-//	AG_write(LSM9DS1_CTRL_REG6_XL, LSM9DS1_AUTO);
-//	// Set Accelerometer output data rate = 50Hz | 0x40
-//	AG_write(LSM9DS1_CTRL_REG6_XL, 0x40);
-//
-//	//------------
-//	// Register 7
-//	// Set filter Low pass bandwith = ODR/50 | 0x80
-//	AG_write(LSM9DS1_CTRL_REG7_XL, LSM9DS1_LP_ODR_DIV_50);
-//	//Set filter out path = Low pass out | 0x00
-//	AG_write(LSM9DS_CTRL_REG7_XL, LSM9DS1_LP_OUT);
-	// Check ID
-	if (AG_read8(LSM9DS1_WHO_AM_I) != LSM9DS1_IMU_ID) return -1;
+    // Read each registers and store it to memory location pointed to by *x, *y and *z
+    *x = (int16_t)lsm9ds1_read16(OUT_X_L_M | MAG_AUTO_INC);   // reads 0x28 + 0x29
+    *y = (int16_t)lsm9ds1_read16(OUT_Y_L_M | MAG_AUTO_INC);   // reads 0x2A + 0x2B
+    *z = (int16_t)lsm9ds1_read16(OUT_Z_L_M | MAG_AUTO_INC);   // reads 0x2C + 0x2D
+}
 
-	// Set Gyroscope, scale = 2000 dps, filter bandwith = ultra light, output data rate = 59.5Hz
-	AG_write(LSM9DS1_CTRL_REG1_G, 0x5A);
+// Convert a raw magnetometer reading to milligauss depening on scale
+// scale is located in FS[1:0] in CTRL_REG2_M (bit value 5 and 6)
+float mag_raw_to_mgauss(int16_t raw, uint8_t ctrl_reg2)
+{
+	// move bits 5 times to the right and only read last two significant bits
+    switch ((ctrl_reg2 >> 5) & 0x03) {   // FS[1:0] = bits 6:5
+    	// Sensititity values found in Section 2.1 Sensor characteristics
+        case 0:  return raw * 0.14f;     // +/-4 gauss
+        case 1:  return raw * 0.29f;     // +/-8 gauss
+        case 2:  return raw * 0.43f;     // +/-12 gauss
+        default: return raw * 0.58f;     // +/-16 gauss
+    }
+}
 
-	// Set gyroscope out selection
-	AG_write(LSM9DS1_CTRL_REG2_G, 0x02);
+// Write the offsets into the sensor. It subtracts them from every reading.
+void mag_write_offsets(int16_t x, int16_t y, int16_t z)
+{
+    lsm9ds1_write16(OFFSET_X_REG_L_M, x);   // 0x05 + 0x06
+    lsm9ds1_write16(OFFSET_Y_REG_L_M, y);   // 0x07 + 0x08
+    lsm9ds1_write16(OFFSET_Z_REG_L_M, z);   // 0x09 + 0x0A
+}
 
-	// Set Gyroscope Enable, HP filter = Medium, Disable low power mode.
-	AG_write(LSM9DS1_CTRL_REG3_G, 0x45);
+// Read the offsets currently stored in the sensor
+void mag_read_offsets(int16_t *x, int16_t *y, int16_t *z)
+{
+    *x = (int16_t)lsm9ds1_read16(OFFSET_X_REG_L_M | MAG_AUTO_INC);   // 0x05 + 0x06
+    *y = (int16_t)lsm9ds1_read16(OFFSET_Y_REG_L_M | MAG_AUTO_INC);   // 0x07 + 0x08
+    *z = (int16_t)lsm9ds1_read16(OFFSET_Z_REG_L_M | MAG_AUTO_INC);   // 0x09 + 0x0A
+}
 
-	// Set Accelerometer scale = 4g, bandwidth anti-alias = auto, output data rate = 50Hz
-	AG_write(LSM9DS1_CTRL_REG6_XL, 0x50);
+// Function to find minimin and maximim magnetometer value whilst rotating the sensor
+// It is expected that the center between the min and max values when rotating the sensor should be zero
+void mag_calibrate(uint32_t samples)
+{
+    int16_t min[3] = { 32767,  32767,  32767};
+    int16_t max[3] = {-32768, -32768, -32768};
+    int16_t v[3];
+    int16_t off[3];
+    int i;
+    printf("Rotate in all directions \n");
+    mag_write_offsets(0, 0, 0);                 // clear old offsets so we see uncorrected data
+    mag_read_xyz(&v[0], &v[1], &v[2]);          // discard one sample that may still have the old offset
 
-	//Set Accelerometer LP filter out, LP Bandwith = ODR/50
-	AG_write(LSM9DS1_CTRL_REG7_XL, 0x80);
+    for (uint32_t n = 0; n < samples; n++) {
+        mag_read_xyz(&v[0], &v[1], &v[2]);
+        for (i = 0; i < 3; i++) {
+            if (v[i] < min[i]) min[i] = v[i];
+            if (v[i] > max[i]) max[i] = v[i];
+        }
+    }
 
-	// Read measurement from temperature, gyroscope and accelerometer, to discard initial value.
-	int16_t temp_buff[3];
-	read_temp();
-	read_gy(temp_buff);
-	read_xl(temp_buff);
-
-	return 0;
+    for (i = 0; i < 3; i++) {
+        off[i] = (int16_t)(((int32_t)max[i] + min[i]) / 2);   // center of the range
+    }
+    printf("Done calibrating\n");
+    mag_write_offsets(off[0], off[1], off[2]);
 }
 
 uint8_t get_AG_status(void) {
@@ -534,17 +679,10 @@ uint8_t get_AG_status(void) {
 }
 
 int16_t read_temp(void) {
-	// Wait for new temperature value to be ready.
-	while(!(get_AG_status() & 0x04)) {}
-
 	return ((int16_t)AG_read8(LSM9DS1_OUT_TEMP_H) << 8) | (int16_t)AG_read8(LSM9DS1_OUT_TEMP_L);
 }
 
-
 void read_gy(int16_t *value) {
-	// Wait for new gyroscope value to be ready.
-	while(!(get_AG_status() & 0x02)) {}
-
 	value[0] = ((int16_t)AG_read8(LSM9DS1_OUT_X_H_G) << 8) | (int16_t)AG_read8(LSM9DS1_OUT_X_L_G);
 	value[1] = ((int16_t)AG_read8(LSM9DS1_OUT_Y_H_G) << 8) | (int16_t)AG_read8(LSM9DS1_OUT_Y_L_G);
 	value[2] = ((int16_t)AG_read8(LSM9DS1_OUT_Z_H_G) << 8) | (int16_t)AG_read8(LSM9DS1_OUT_Z_L_G);
@@ -553,9 +691,6 @@ void read_gy(int16_t *value) {
 }
 
 void read_xl(int16_t *value) {
-	// Wait for new acceleromter value to be ready.
-	while(!(get_AG_status() & 0x01)) {}
-
 	value[0] = ((int16_t)AG_read8(LSM9DS1_OUT_X_H_XL) << 8) | (int16_t)AG_read8(LSM9DS1_OUT_X_L_XL);
 	value[1] = ((int16_t)AG_read8(LSM9DS1_OUT_Y_H_XL) << 8) | (int16_t)AG_read8(LSM9DS1_OUT_Y_L_XL);
 	value[2] = ((int16_t)AG_read8(LSM9DS1_OUT_Z_H_XL) << 8) | (int16_t)AG_read8(LSM9DS1_OUT_Z_L_XL);
