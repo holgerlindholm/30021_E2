@@ -6,13 +6,13 @@
 #include "openlog.h"
 #include "exercises.h"
 
-int main(void) {
-	uart_init(9600);
+int main(void)
+{
+    uart_init(9600);
 
-	exercise_4_1();
+    exercise_4_1();
 
-	while(1)
-	{
-
-	}
+    while (1)
+    {
+    }
 }
