@@ -83,6 +83,7 @@ void exercise_4_1(void) {
 //	}
 
     // once, before the loop
+    // It is possible to save to a file using logging in putty
     printf("temp,gx,gy,gz,ax,ay,az,mx,my,mz\n");
 
     while (1) {
