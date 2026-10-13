@@ -1,8 +1,10 @@
 #include "lsm9ds1.h"
 
 void exercise_4_1(void) {
+	printf("Build: %s %s\n", __DATE__, __TIME__);
     init_spi_lsm9ds1();
     init_AG();
+    mag_init();
 
     uint8_t AG_status;
     int16_t temp_raw, data_raw_xl[3], data_raw_gy[3];
@@ -14,31 +16,6 @@ void exercise_4_1(void) {
 	float xl_x, xl_y, xl_z;
 	float gy_x, gy_y, gy_z;
 
-    if (mag_init() != 0) {
-        printf("LSM9DS1 magnetometer not found\n");
-        while (1);
-    }
-
-<<<<<<< Updated upstream
-    uint8_t scale = lsm9ds1_read8(CTRL_REG2_M);   // Currently it is set to +- 4gauss
-
-    // For testing read and write
-	uint8_t data_out8;
-	uint16_t data_out16;
-<<<<<<< HEAD
-	init_spi_lsm9ds1();
-	init_AG();
-
-	int16_t temp_raw, data_raw_xl[3], data_raw_gy[3];
-	int16_t offset_gy_raw[3], offset_xl_raw[3];
-
-	float temp;
-	float xl_x, xl_y, xl_z;
-	float gy_x, gy_y, gy_z;
-
-=======
-=======
->>>>>>> f26a6fc (modified magnetometer SPI to work, tested with sensor)
 	// Calibrate static offsets when the board is sitting still.
 	calibrate_gy(offset_gy_raw);
 	calibrate_xl(offset_xl_raw);
@@ -52,10 +29,6 @@ void exercise_4_1(void) {
 
 	printf("Accelerometer offset = %f4.2 [mdps]\t Y = %4.2f [mdps]\t Z = %4.2f [mdps]\n", gy_offset_x, gy_offset_y, gy_offset_z);
 	printf("Gyroscope offset = %f4.2 [mg]\t Y = %4.2f [mg]\t Z = %4.2f [mg]\n", xl_offset_x, xl_offset_y, xl_offset_z);
-<<<<<<< HEAD
-=======
->>>>>>> Stashed changes
->>>>>>> f26a6fc (modified magnetometer SPI to work, tested with sensor)
 
     // Magnetometer calibration: rotate the board in all directions while this runs
     printf("Rotate the board in all directions...\n");
@@ -103,14 +76,9 @@ void exercise_4_1(void) {
 		float y_mg = mag_raw_to_mgauss(mag_y);
 		float z_mg = mag_raw_to_mgauss(mag_z);
 
-<<<<<<< Updated upstream
-		printf("X=%d Y=%d Z=%d (raw)\n", x_mg, y_mg, z_mg);
-
 		// lsm9ds1_write(WHO_AM_I, 0xAA);
-=======
 		printf("X=%4.2f\t Y=%4.2f\t Z=%4.2f\t (raw)\n", x_mg, y_mg, z_mg);
 		printf("X=%d\t Y=%d\t Z=%d\t (raw)\n",
 		       mag_x, mag_y, mag_z);
->>>>>>> Stashed changes
 	}
 }
