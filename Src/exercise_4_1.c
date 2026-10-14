@@ -38,52 +38,52 @@ void exercise_4_1(void) {
     mag_read_offsets(&off_x, &off_y, &off_z);
     printf("Magnetometer offsets: X=%d Y=%d Z=%d\n", off_x, off_y, off_z); // Check that it is non zero
 
-//	while (1) {
-//		AG_status = get_AG_status();
-//
-//		// Read values from temperature sensor
-//		if (AG_status & 0x04) {
-//			temp_raw = read_temp();
-//
-//			// Convert values from int16 to float
-//			temp = temp_raw_to_float(temp_raw);
-//			printf("Temperature = %2.2f[°C]\n",temp);
-//		}
-//
-//		// Read values from Gyroscope
-//		if (AG_status & 0x02) {
-//			read_gy(data_raw_gy);
-//
-//			gy_x = fs2000dps_to_mdps(data_raw_gy[0] - offset_gy_raw[0]);
-//			gy_y = fs2000dps_to_mdps(data_raw_gy[1] - offset_gy_raw[1]);
-//			gy_z = fs2000dps_to_mdps(data_raw_gy[2] - offset_gy_raw[2]);
-//
-//			printf("Gyroscope readings\tX = %4.2f [md ps]\t Y = %4.2f [mdps]\t Z = %4.2f [mdps]\n", gy_x, gy_y, gy_z);
-//		}
-//
-//		// Read values from Accelerometer
-//		if (AG_status & 0x01) {
-//			read_xl(data_raw_xl);
-//			xl_x = fs4g_to_mg(data_raw_xl[0] - offset_xl_raw[0]);
-//			xl_y = fs4g_to_mg(data_raw_xl[1] - offset_xl_raw[1]);
-//			xl_z = fs4g_to_mg(data_raw_xl[2] - offset_xl_raw[2]);
-//			printf("Accelerometer readings\tX = %4.2f [mg]\t Y = %4.2f [mg]\t Z = %4.2f [mg]\n", xl_x, xl_y, xl_z);
-//		}
-//
-//		// Read magnetometer data using adresses $mag_x
-//		mag_read_xyz(&mag_x, &mag_y, &mag_z);
-//		float x_mg = mag_raw_to_mgauss(mag_x);
-//		float y_mg = mag_raw_to_mgauss(mag_y);
-//		float z_mg = mag_raw_to_mgauss(mag_z);
-//
-//		// lsm9ds1_write(WHO_AM_I, 0xAA);
-//		printf("Magnetometer readings\tX = %4.2f [mgauss]\t Y = %4.2f [mgauss]\t Z = %4.2f [mgauss]\n", x_mg, y_mg, z_mg);
-////		printf("X=%d\t Y=%d\t Z=%d\t (raw)\n",
-////		       mag_x, mag_y, mag_z);
-//	}
+	while (1) {
+		AG_status = get_AG_status();
 
-    // once, before the loop
-    // It is possible to save to a file using logging in putty
+		// Read values from temperature sensor
+		if (AG_status & 0x04) {
+			temp_raw = read_temp();
+
+			// Convert values from int16 to float
+			temp = temp_raw_to_float(temp_raw);
+			printf("Temperature = %2.2f[°C]\n",temp);
+		}
+
+		// Read values from Gyroscope
+		if (AG_status & 0x02) {
+			read_gy(data_raw_gy);
+
+			gy_x = fs2000dps_to_mdps(data_raw_gy[0] - offset_gy_raw[0]);
+			gy_y = fs2000dps_to_mdps(data_raw_gy[1] - offset_gy_raw[1]);
+			gy_z = fs2000dps_to_mdps(data_raw_gy[2] - offset_gy_raw[2]);
+
+			printf("Gyroscope readings\tX = %4.2f [md ps]\t Y = %4.2f [mdps]\t Z = %4.2f [mdps]\n", gy_x, gy_y, gy_z);
+		}
+
+		// Read values from Accelerometer
+		if (AG_status & 0x01) {
+			read_xl(data_raw_xl);
+			xl_x = fs4g_to_mg(data_raw_xl[0] - offset_xl_raw[0]);
+			xl_y = fs4g_to_mg(data_raw_xl[1] - offset_xl_raw[1]);
+			xl_z = fs4g_to_mg(data_raw_xl[2] - offset_xl_raw[2]);
+			printf("Accelerometer readings\tX = %4.2f [mg]\t Y = %4.2f [mg]\t Z = %4.2f [mg]\n", xl_x, xl_y, xl_z);
+		}
+
+		// Read magnetometer data using adresses $mag_x
+		mag_read_xyz(&mag_x, &mag_y, &mag_z);
+		float x_mg = mag_raw_to_mgauss(mag_x);
+		float y_mg = mag_raw_to_mgauss(mag_y);
+		float z_mg = mag_raw_to_mgauss(mag_z);
+
+		// lsm9ds1_write(WHO_AM_I, 0xAA);
+		printf("Magnetometer readings\tX = %4.2f [mgauss]\t Y = %4.2f [mgauss]\t Z = %4.2f [mgauss]\n", x_mg, y_mg, z_mg);
+//		printf("X=%d\t Y=%d\t Z=%d\t (raw)\n",
+//		       mag_x, mag_y, mag_z);
+	}
+
+     once, before the loop
+     It is possible to save to a file using logging in putty
     printf("temp,gx,gy,gz,ax,ay,az,mx,my,mz\n");
 
     while (1) {

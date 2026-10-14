@@ -7,6 +7,9 @@
 #ifndef LSM9DS1_H_
 #define LSM9DS1_H_
 
+#define CS_AG_PIN  6
+#define CS_M_PIN   10
+
 /** Device Identification (Who am I) **/
 #define LSM9DS1_IMU_ID             0x68U
 
@@ -105,16 +108,25 @@ void calibrate_xl(int16_t *offset);
 
 // Magnetometer
 // Initialization, read and convert
-int      mag_init(void);                    // returns 0 if OK, -1 if not found
+int      mag_init(void);
+uint8_t get_M_status(void);
 void     mag_read_xyz(int16_t *x, int16_t *y, int16_t *z);
 void     mag_write_offsets(int16_t x, int16_t y, int16_t z);
 void     mag_read_offsets(int16_t *x, int16_t *y, int16_t *z);
 void     mag_calibrate(uint32_t samples);   // rotate the board by hand while this runs
+
+// Read / Write functions
+void SPI_write(uint8_t cs_pin, uint8_t addr, uint8_t data_in);
+void SPI_write16(uint8_t cs_pin, uint8_t reg_low, int16_t value);
+uint8_t SPI_read8(uint8_t cs_pin, uint8_t addr);
+int16_t SPI_read16(uint8_t cs_pin, uint8_t low_reg);
 
 // Helper converter functions
 float mag_raw_to_mgauss(int16_t raw);
 float_t temp_raw_to_float(int16_t temp_raw);
 float_t fs2000dps_to_mdps(int16_t gy_raw);
 float_t fs4g_to_mg(int16_t xl_raw);
+
+
 
 #endif /* LSM9DS1_H_ */
