@@ -170,8 +170,7 @@ int mag_init(void)
 
 	uint8_t id = SPI_read8(CS_M_PIN,LSM9DS1_WHO_AM_I_M);
 	printf("WHO_AM_I_M = 0x%02X\n", id);
-
-//	if (M_read8(LSM9DS1_WHO_AM_I_M) != 0x3D) return -1;   // check chip ID
+	if (id != LSM9DS1_IMU_ID) return -1;
 
     // Configure the CTRL registers
 	SPI_write(CS_M_PIN,LSM9DS1_CTRL_REG1_M, 0xFC);       // temp comp on, ultra-high performance XY, 80 Hz
@@ -261,9 +260,9 @@ void mag_write_offset(int16_t x_off, int16_t y_off, int16_t z_off)
 
 void mag_read_offsets(int16_t *x, int16_t *y, int16_t *z)
 {
-    *x = SPI_read16(CS_M_PIN,LSM9DS1_OFFSET_X_REG_L_M);
-    *y = SPI_read16(CS_M_PIN,LSM9DS1_OFFSET_Y_REG_L_M);
-    *z = SPI_read16(CS_M_PIN,LSM9DS1_OFFSET_Z_REG_L_M);
+    x = SPI_read16(CS_M_PIN,LSM9DS1_OFFSET_X_REG_L_M);
+    y = SPI_read16(CS_M_PIN,LSM9DS1_OFFSET_Y_REG_L_M);
+    z = SPI_read16(CS_M_PIN,LSM9DS1_OFFSET_Z_REG_L_M);
 }
 
 // Find minimum and maximum magnetometer values while rotating the sensor.
