@@ -1,13 +1,6 @@
 #include "lsm9ds1.h"
 //#include "lsm9ds1_reg.h"
 
-
-// Initialize private functions.
-static uint8_t M_read8(uint8_t addr);
-static uint8_t AG_read8(uint8_t addr);
-static void M_write(uint8_t addr, uint8_t data_in);
-static void AG_write(uint8_t addr, uint8_t data_in);
-
 float_t temp_raw_to_float(int16_t temp_raw) {
 	return 25.0f + (temp_raw / 16.0f);
 }
@@ -25,7 +18,7 @@ float_t fs2000dps_to_mdps(int16_t gy_raw)
 // scale is located in FS[1:0] in CTRL_REG2_M (bit value 5 and 6)
 float mag_raw_to_mgauss(int16_t raw)
 {
-    uint8_t ctrl_reg2 = M_read8(LSM9DS1_CTRL_REG2_M );
+    uint8_t ctrl_reg2 = SPI_read8(CS_M_PIN,LSM9DS1_CTRL_REG2_M );
 
     // Extract FS[1:0] (bits 6:5)
     switch ((ctrl_reg2 >> 5) & 0x03)
@@ -143,22 +136,22 @@ int init_AG(void) {
 //	//Set filter out path = Low pass out | 0x00
 //	AG_write(LSM9DS_CTRL_REG7_XL, LSM9DS1_LP_OUT);
 	// Check ID
-	if (AG_read8(LSM9DS1_WHO_AM_I) != LSM9DS1_IMU_ID) return -1;
+	if (SPI_read8(CS_AG_PIN,LSM9DS1_WHO_AM_I) != LSM9DS1_IMU_ID) return -1;
 
 	// Set Gyroscope, scale = 2000 dps, filter bandwith = ultra light, output data rate = 59.5Hz
-	AG_write(LSM9DS1_CTRL_REG1_G, 0x5A);
+	SPI_write(CS_AG_PIN,LSM9DS1_CTRL_REG1_G, 0x5A);
 
 	// Set gyroscope out selection
-	AG_write(LSM9DS1_CTRL_REG2_G, 0x02);
+	SPI_write(CS_AG_PIN,LSM9DS1_CTRL_REG2_G, 0x02);
 
 	// Set Gyroscope Enable, HP filter = Medium, Disable low power mode.
-	AG_write(LSM9DS1_CTRL_REG3_G, 0x45);
+	SPI_write(CS_AG_PIN,LSM9DS1_CTRL_REG3_G, 0x45);
 
 	// Set Accelerometer scale = 4g, bandwidth anti-alias = auto, output data rate = 50Hz
-	AG_write(LSM9DS1_CTRL_REG6_XL, 0x50);
+	SPI_write(CS_AG_PIN,LSM9DS1_CTRL_REG6_XL, 0x50);
 
 	//Set Accelerometer LP filter out, LP Bandwith = ODR/50
-	AG_write(LSM9DS1_CTRL_REG7_XL, 0x80);
+	SPI_write(CS_AG_PIN,LSM9DS1_CTRL_REG7_XL, 0x80);
 
 	// Read measurement from temperature, gyroscope and accelerometer, to discard initial value.
 	int16_t temp_buff[3];
@@ -173,133 +166,103 @@ int init_AG(void) {
 int mag_init(void)
 {
 	// CTRL_REG3_M: I2C_DISABLE = 1, SIM = 0 (4-wire SPI, data on SDO_M)
-	M_write(LSM9DS1_CTRL_REG3_M, 0x80); // <- This was a pain in the ass to figure out
+	SPI_write(CS_M_PIN,LSM9DS1_CTRL_REG3_M, 0x80); // <- This was a pain in the ass to figure out
 
-	uint8_t id = M_read8(LSM9DS1_WHO_AM_I_M);
+	uint8_t id = SPI_read8(CS_M_PIN,LSM9DS1_WHO_AM_I_M);
 	printf("WHO_AM_I_M = 0x%02X\n", id);
-
-//	if (M_read8(LSM9DS1_WHO_AM_I_M) != 0x3D) return -1;   // check chip ID
+	if (id != LSM9DS1_IMU_ID) return -1;
 
     // Configure the CTRL registers
-    M_write(LSM9DS1_CTRL_REG1_M, 0xFC);       // temp comp on, ultra-high performance XY, 80 Hz
-    M_write(LSM9DS1_CTRL_REG2_M, 0x00);       // +/-4 gauss
-    M_write(LSM9DS1_CTRL_REG4_M, 0x0C);       // ultra-high performance Z
-    M_write(LSM9DS1_CTRL_REG5_M, 0x40);       // BDU on
+	SPI_write(CS_M_PIN,LSM9DS1_CTRL_REG1_M, 0xFC);       // temp comp on, ultra-high performance XY, 80 Hz
+	SPI_write(CS_M_PIN,LSM9DS1_CTRL_REG2_M, 0x00);       // +/-4 gauss
+	SPI_write(CS_M_PIN,LSM9DS1_CTRL_REG4_M, 0x0C);       // ultra-high performance Z
+	SPI_write(CS_M_PIN,LSM9DS1_CTRL_REG5_M, 0x40);       // BDU on
     return 0;
 }
 
-uint8_t M_read8(uint8_t addr) {
-	uint8_t data_out8;
+uint8_t SPI_read8(uint8_t cs_pin, uint8_t addr)
+{
+    uint8_t data_out8;
 
-	GPIOB->ODR &= ~(1 << 10);
+    // Assert CS (active low)
+    GPIOB->ODR &= ~(1 << cs_pin);
 
-	while (SPI_I2S_GetFlagStatus(SPI2, SPI_I2S_FLAG_TXE) != SET) {}
-	SPI_SendData8(SPI2, addr | 0x80);
+    // Send read command (MSB = 1)
+    while (SPI_I2S_GetFlagStatus(SPI2, SPI_I2S_FLAG_TXE) != SET) {}
+    SPI_SendData8(SPI2, addr | 0x80);
 
-	while (SPI_I2S_GetFlagStatus(SPI2, SPI_I2S_FLAG_TXE) != SET) {}
-	SPI_ReceiveData8(SPI2);
+    // Discard received byte during address phase
+    while (SPI_I2S_GetFlagStatus(SPI2, SPI_I2S_FLAG_TXE) != SET) {}
+    SPI_ReceiveData8(SPI2);
 
-	SPI_SendData8(SPI2, 0x00);
+    // Clock in the data byte
+    SPI_SendData8(SPI2, 0x00);
 
-	while (SPI_I2S_GetFlagStatus(SPI2, SPI_I2S_FLAG_RXNE) != SET) {}
-	data_out8 = SPI_ReceiveData8(SPI2);
+    while (SPI_I2S_GetFlagStatus(SPI2, SPI_I2S_FLAG_RXNE) != SET) {}
+    data_out8 = SPI_ReceiveData8(SPI2);
 
-	GPIOB->ODR |= (1 << 10);
+    // Deassert CS
+    GPIOB->ODR |= (1 << cs_pin);
 
-	return data_out8;
+    return data_out8;
 }
 
-int16_t M_read16(uint8_t low_reg)
+int16_t SPI_read16(uint8_t cs_pin, uint8_t low_reg)
 {
-    uint8_t low  = M_read8(low_reg);
-    uint8_t high = M_read8(low_reg + 1);
+    uint8_t low  = SPI_read8(cs_pin, low_reg);
+    uint8_t high = SPI_read8(cs_pin, low_reg + 1);
 
     return (int16_t)(((uint16_t)high << 8) | low);
 }
 
-uint8_t AG_read8(uint8_t addr) {
-	uint8_t data_out8;
 
-    GPIOB->ODR &= ~(1 << 6);
+void SPI_write(uint8_t cs_pin, uint8_t addr, uint8_t data_in)
+{
+    // Assert CS (active low)
+    GPIOB->ODR &= ~(1 << cs_pin);
 
+    // Send register address
+    SPI_SendData8(SPI2, addr);
     while (SPI_I2S_GetFlagStatus(SPI2, SPI_I2S_FLAG_TXE) != SET) {}
-	SPI_SendData8(SPI2, addr | 0x80);
+    SPI_ReceiveData8(SPI2);  // Clear received dummy byte
 
-	while (SPI_I2S_GetFlagStatus(SPI2, SPI_I2S_FLAG_TXE) != SET) {}
-	SPI_ReceiveData8(SPI2);
+    // Send data
+    SPI_SendData8(SPI2, data_in);
+    while (SPI_I2S_GetFlagStatus(SPI2, SPI_I2S_FLAG_TXE) != SET) {}
+    SPI_ReceiveData8(SPI2);  // Clear received dummy byte
 
-	SPI_SendData8(SPI2, 0x00);
-
-	while (SPI_I2S_GetFlagStatus(SPI2, SPI_I2S_FLAG_RXNE) != SET) {}
-	data_out8 = SPI_ReceiveData8(SPI2);
-
-	GPIOB->ODR |= (1 << 6);
-
-	return data_out8;
-}
-
-void M_write(uint8_t addr, uint8_t data_in) {
-	GPIOB->ODR &= ~(1 << 10);
-
-	SPI_SendData8(SPI2, addr);
-
-	while (SPI_I2S_GetFlagStatus(SPI2, SPI_I2S_FLAG_TXE) != SET) {}
-	SPI_ReceiveData8(SPI2);
-
-	SPI_SendData8(SPI2, data_in);
-	while (SPI_I2S_GetFlagStatus(SPI2, SPI_I2S_FLAG_TXE) != SET) {}
-	SPI_ReceiveData8(SPI2);
-
-	GPIOB->ODR |= (1 << 10);
+    // Deassert CS
+    GPIOB->ODR |= (1 << cs_pin);
 }
 
 // Write 2 consecutive bytes to low and high register pair
-void M_write16(uint8_t reg_low, int16_t value)
+void SPI_write16(uint8_t cs_pin, uint8_t reg_low, int16_t value)
 {
-    M_write(reg_low,     (uint8_t)(value & 0xFF));
-    M_write(reg_low + 1, (uint8_t)((value >> 8) & 0xFF));
-}
-
-void AG_write(uint8_t addr, uint8_t data_in) {
-	GPIOB->ODR &= ~(1 << 6);
-
-	SPI_SendData8(SPI2, addr);
-
-	while (SPI_I2S_GetFlagStatus(SPI2, SPI_I2S_FLAG_TXE) != SET) {}
-	SPI_ReceiveData8(SPI2);
-
-	SPI_SendData8(SPI2, data_in);
-	while (SPI_I2S_GetFlagStatus(SPI2, SPI_I2S_FLAG_TXE) != SET) {}
-	SPI_ReceiveData8(SPI2);
-
-	GPIOB->ODR |= (1 << 6);
-
+    SPI_write(cs_pin, reg_low,     (uint8_t)(value & 0xFF));        // Low byte
+    SPI_write(cs_pin, reg_low + 1, (uint8_t)((value >> 8) & 0xFF)); // High byte
 }
 
 // Raw readings (signed 16-bit) using pointers
 void mag_read_xyz(int16_t *x, int16_t *y, int16_t *z)
 {
-    while (!(M_read8(LSM9DS1_STATUS_REG_M) & 0x08)) {}   // wait until new XYZ data is ready
-
-    // combine low byte and high byte into a signed 16-bit value
-    *x = (int16_t)((M_read8(LSM9DS1_OUT_X_H_M) << 8) | M_read8(LSM9DS1_OUT_X_L_M));
-    *y = (int16_t)((M_read8(LSM9DS1_OUT_Y_H_M) << 8) | M_read8(LSM9DS1_OUT_Y_L_M));
-    *z = (int16_t)((M_read8(LSM9DS1_OUT_Z_H_M) << 8) | M_read8(LSM9DS1_OUT_Z_L_M));
+    *x = SPI_read16(CS_M_PIN, LSM9DS1_OUT_X_L_M);
+    *y = SPI_read16(CS_M_PIN, LSM9DS1_OUT_Y_L_M);
+    *z = SPI_read16(CS_M_PIN, LSM9DS1_OUT_Z_L_M);
 }
 
 // Write the offsets into the sensor. It subtracts them from every reading.
 void mag_write_offset(int16_t x_off, int16_t y_off, int16_t z_off)
 {
-    M_write16(LSM9DS1_OFFSET_X_REG_L_M, x_off);
-    M_write16(LSM9DS1_OFFSET_Y_REG_L_M, y_off);
-    M_write16(LSM9DS1_OFFSET_Z_REG_L_M, z_off);
+	SPI_write16(CS_M_PIN,LSM9DS1_OFFSET_X_REG_L_M, x_off);
+	SPI_write16(CS_M_PIN,LSM9DS1_OFFSET_Y_REG_L_M, y_off);
+	SPI_write16(CS_M_PIN,LSM9DS1_OFFSET_Z_REG_L_M, z_off);
 }
 
 void mag_read_offsets(int16_t *x, int16_t *y, int16_t *z)
 {
-    *x = M_read16(LSM9DS1_OFFSET_X_REG_L_M);
-    *y = M_read16(LSM9DS1_OFFSET_Y_REG_L_M);
-    *z = M_read16(LSM9DS1_OFFSET_Z_REG_L_M);
+    x = SPI_read16(CS_M_PIN,LSM9DS1_OFFSET_X_REG_L_M);
+    y = SPI_read16(CS_M_PIN,LSM9DS1_OFFSET_Y_REG_L_M);
+    z = SPI_read16(CS_M_PIN,LSM9DS1_OFFSET_Z_REG_L_M);
 }
 
 // Find minimum and maximum magnetometer values while rotating the sensor.
@@ -344,28 +307,55 @@ void mag_calibrate(uint32_t samples)
     printf("Done calibrating magnetometer \n");
 }
 
-uint8_t get_AG_status(void) {
-	return AG_read8(LSM9DS1_STATUS_REG);
+uint8_t get_AG_status(void)
+{
+    return SPI_read8(CS_AG_PIN, LSM9DS1_STATUS_REG);
 }
 
-int16_t read_temp(void) {
-	return ((int16_t)AG_read8(LSM9DS1_OUT_TEMP_H) << 8) | (int16_t)AG_read8(LSM9DS1_OUT_TEMP_L);
+uint8_t get_M_status(void)
+{
+    return SPI_read8(CS_M_PIN, LSM9DS1_STATUS_REG_M);
 }
 
-void read_gy(int16_t *value) {
-	value[0] = ((int16_t)AG_read8(LSM9DS1_OUT_X_H_G) << 8) | (int16_t)AG_read8(LSM9DS1_OUT_X_L_G);
-	value[1] = ((int16_t)AG_read8(LSM9DS1_OUT_Y_H_G) << 8) | (int16_t)AG_read8(LSM9DS1_OUT_Y_L_G);
-	value[2] = ((int16_t)AG_read8(LSM9DS1_OUT_Z_H_G) << 8) | (int16_t)AG_read8(LSM9DS1_OUT_Z_L_G);
-
-//	printf("Gyroscope raw readings:\tX = %X\t Y = %X\t Z = %X\n",value[0],value[1],value[2]);
+int16_t read_temp(void)
+{
+    return SPI_read16(CS_AG_PIN, LSM9DS1_OUT_TEMP_L);
 }
 
-void read_xl(int16_t *value) {
-	value[0] = ((int16_t)AG_read8(LSM9DS1_OUT_X_H_XL) << 8) | (int16_t)AG_read8(LSM9DS1_OUT_X_L_XL);
-	value[1] = ((int16_t)AG_read8(LSM9DS1_OUT_Y_H_XL) << 8) | (int16_t)AG_read8(LSM9DS1_OUT_Y_L_XL);
-	value[2] = ((int16_t)AG_read8(LSM9DS1_OUT_Z_H_XL) << 8) | (int16_t)AG_read8(LSM9DS1_OUT_Z_L_XL);
+//void read_gy(int16_t *value) {
+//	value[0] = ((int16_t)AG_read8(LSM9DS1_OUT_X_H_G) << 8) | (int16_t)AG_read8(LSM9DS1_OUT_X_L_G);
+//	value[1] = ((int16_t)AG_read8(LSM9DS1_OUT_Y_H_G) << 8) | (int16_t)AG_read8(LSM9DS1_OUT_Y_L_G);
+//	value[2] = ((int16_t)AG_read8(LSM9DS1_OUT_Z_H_G) << 8) | (int16_t)AG_read8(LSM9DS1_OUT_Z_L_G);
+//
+////	printf("Gyroscope raw readings:\tX = %X\t Y = %X\t Z = %X\n",value[0],value[1],value[2]);
+//}
+//
+//void read_xl(int16_t *value) {
+//	value[0] = ((int16_t)AG_read8(LSM9DS1_OUT_X_H_XL) << 8) | (int16_t)AG_read8(LSM9DS1_OUT_X_L_XL);
+//	value[1] = ((int16_t)AG_read8(LSM9DS1_OUT_Y_H_XL) << 8) | (int16_t)AG_read8(LSM9DS1_OUT_Y_L_XL);
+//	value[2] = ((int16_t)AG_read8(LSM9DS1_OUT_Z_H_XL) << 8) | (int16_t)AG_read8(LSM9DS1_OUT_Z_L_XL);
+//
+////	printf("Accelerometer raw readings:\tX = %X\t Y = %X\t Z = %X\n",value[0],value[1],value[2]);
+//}
 
-//	printf("Accelerometer raw readings:\tX = %X\t Y = %X\t Z = %X\n",value[0],value[1],value[2]);
+void read_gy(int16_t *value)
+{
+    value[0] = SPI_read16(CS_AG_PIN, LSM9DS1_OUT_X_L_G);
+    value[1] = SPI_read16(CS_AG_PIN, LSM9DS1_OUT_Y_L_G);
+    value[2] = SPI_read16(CS_AG_PIN, LSM9DS1_OUT_Z_L_G);
+
+    // printf("Gyroscope raw readings:\tX = %X\t Y = %X\t Z = %X\n",
+    //        value[0], value[1], value[2]);
+}
+
+void read_xl(int16_t *value)
+{
+    value[0] = SPI_read16(CS_AG_PIN, LSM9DS1_OUT_X_L_XL);
+    value[1] = SPI_read16(CS_AG_PIN, LSM9DS1_OUT_Y_L_XL);
+    value[2] = SPI_read16(CS_AG_PIN, LSM9DS1_OUT_Z_L_XL);
+
+    // printf("Accelerometer raw readings:\tX = %X\t Y = %X\t Z = %X\n",
+    //        value[0], value[1], value[2]);
 }
 
 void calibrate_gy(int16_t *offset){
