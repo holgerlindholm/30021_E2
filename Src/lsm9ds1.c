@@ -166,7 +166,7 @@ int init_AG(void) {
 int mag_init(void)
 {
 	// CTRL_REG3_M: I2C_DISABLE = 1, SIM = 0 (4-wire SPI, data on SDO_M)
-	CS_write(CS_M_PIN,LSM9DS1_CTRL_REG3_M, 0x80); // <- This was a pain in the ass to figure out
+	SPI_write(CS_M_PIN,LSM9DS1_CTRL_REG3_M, 0x80); // <- This was a pain in the ass to figure out
 
 	uint8_t id = SPI_read8(CS_M_PIN,LSM9DS1_WHO_AM_I_M);
 	printf("WHO_AM_I_M = 0x%02X\n", id);
@@ -174,10 +174,10 @@ int mag_init(void)
 //	if (M_read8(LSM9DS1_WHO_AM_I_M) != 0x3D) return -1;   // check chip ID
 
     // Configure the CTRL registers
-    CS_write(CS_M_PIN,LSM9DS1_CTRL_REG1_M, 0xFC);       // temp comp on, ultra-high performance XY, 80 Hz
-    CS_write(CS_M_PIN,LSM9DS1_CTRL_REG2_M, 0x00);       // +/-4 gauss
-    CS_write(CS_M_PIN,LSM9DS1_CTRL_REG4_M, 0x0C);       // ultra-high performance Z
-    CS_write(CS_M_PIN,LSM9DS1_CTRL_REG5_M, 0x40);       // BDU on
+	SPI_write(CS_M_PIN,LSM9DS1_CTRL_REG1_M, 0xFC);       // temp comp on, ultra-high performance XY, 80 Hz
+	SPI_write(CS_M_PIN,LSM9DS1_CTRL_REG2_M, 0x00);       // +/-4 gauss
+	SPI_write(CS_M_PIN,LSM9DS1_CTRL_REG4_M, 0x0C);       // ultra-high performance Z
+	SPI_write(CS_M_PIN,LSM9DS1_CTRL_REG5_M, 0x40);       // BDU on
     return 0;
 }
 
