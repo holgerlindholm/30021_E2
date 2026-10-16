@@ -1,5 +1,6 @@
 #include "timer.h"
 #include "stm32f30x.h"
+#include "gpio.h"
 
 // Datasheet table 14: PA5, TIM2_CH1
 void GPIO_set_AF_PA5(void)
@@ -65,10 +66,10 @@ void TIM2_PWMInput_Init(void)
     TIM_Cmd(TIM2, ENABLE); // Enable the entire TIM counter
 }
 
-#define TIM_TICK_US  1.0f    // (PSC + 1) / 72 MHz = 1 µs
+#define TIM_TICK_US  1.0f    // (PSC + 1) / 72 MHz = 1 micro second
 
 volatile uint32_t ICValue1, ICValue2; // Initialize variables to store last readings of the CCR1 and CCR2
-volatile uint8_t  ICValid = 0; //
+volatile uint8_t  ICValid = 0; //Flag to see if new reading is available
 
 // ISR = Interrupt Service Routine.
 void TIM2_IRQHandler(void) {
@@ -98,6 +99,19 @@ void avg_add(uint32_t p, uint32_t h)
     if (avg_count < AVG_N) avg_count++;
 }
 
+void avg_reset(void)
+// Resets all variables to zero
+{
+    for (uint8_t i = 0; i < AVG_N; i++) {
+        pbuf[i] = 0;
+        hbuf[i] = 0;
+    }
+    psum = 0;
+    hsum = 0;
+    avg_idx = 0;
+    avg_count = 0;
+}
+
 // Averages in ticks; returns 0 if there are no samples yet
 float avg_period_ticks(void) { return avg_count ? (float)psum / avg_count : 0.0f; }
 float avg_high_ticks(void)   { return avg_count ? (float)hsum / avg_count : 0.0f; }
@@ -121,18 +135,78 @@ void exercise_6_1(void) {
 	// CCR2 effectively measures the high time --> 50 counts
 
 	// Resoluition: 1 tick = 1% of period (good enough?)
+
 	uint32_t p, h;
 	TIM2_PWMInput_Init();
 
-	while (1) {
-	        if (ICValid) {
-	            // Copy both values together so the ISR can't update one mid-read
-	            NVIC_DisableIRQ(TIM2_IRQn);
-	            p = ICValue1;
-	            h = ICValue2;
-	            ICValid = 0;
-	            NVIC_EnableIRQ(TIM2_IRQn);
+	// Copied from exercise 1.3 (EXTI test with buttons and LED)
+	initJoystick();
+	initLed();
+	initEXTI();
+	__enable_irq();
 
+
+	uint8_t running = 1; // flag to indicate that program is running (0 = stop, 1 = running)
+	setLed(LED_GREEN);   // start in "running" state
+	printf("\r\n--- running ---\r\n");
+
+	while (1) {
+	    if (joystick_flag) { // interrupt flag by EXTI
+	        joystick_flag = 0;
+
+	        if (current_joystick_state & JOYSTICK_CENTER) {   // pause / resume
+	            running = !running;
+
+	            if (running){
+	            	printf("\r\n--- resumed ---\r\n");
+	            	ledColor = LED_GREEN;
+	            }
+	            else{
+	            	printf("\r\n--- paused ---\r\n");
+	            	ledColor = LED_RED;
+	            }
+	            setLed(ledColor);
+	        }
+
+	        if (current_joystick_state & JOYSTICK_DOWN) {     // reset instrument
+	            avg_reset();
+
+
+	            ICValid = 0;
+	            printf("\r\n--- reset ---\r\n");
+	        }
+	    }
+
+	    if (ICValid) {
+	        NVIC_DisableIRQ(TIM2_IRQn);
+	        p = ICValue1;
+	        h = ICValue2;
+	        ICValid = 0;
+	        NVIC_EnableIRQ(TIM2_IRQn);
+
+	        if (running && p != 0) {
+	            setLed(LED_BLUE);            // flash blue when measurement is completed
+
+	            avg_add(p, h);
+
+	            float p_avg = avg_period_ticks() * TIM_TICK_US;   // µs
+	            float h_avg = avg_high_ticks()   * TIM_TICK_US;   // µs
+	            float f_avg = 1e6f / p_avg;                       // Hz
+	            float d_avg = 100.0f * h_avg / p_avg;             // %
+
+	            printf("n=%u  T=%.3f us  high=%.3f us  f=%.3f Hz  D=%.2f %%   \r",
+	                   avg_count, p_avg, h_avg, f_avg, d_avg);
+
+	            delay_ms(200);               // throttle output (blue LED stays visible)
+	            ICValid = 0;                 // discard captures that arrived during the delay
+	            setLed(LED_GREEN);           // back to "running" colour
+	        }
+	    }
+	}
+}
+
+
+// SINGLE CAPTURE
 //	            if (p != 0) {
 //	                float period_us = p * TIM_TICK_US;
 //	                float high_us   = h * TIM_TICK_US;
@@ -142,21 +216,3 @@ void exercise_6_1(void) {
 //	                printf("T=%.2f us  high=%.2f us  f=%.3f Hz  D=%.1f %%   \r",
 //	                       period_us, high_us, freq_hz, duty_pct);
 //	            }
-
-	            if (p != 0) {
-					avg_add(p, h);
-
-					float p_avg = avg_period_ticks() * TIM_TICK_US;   // µs
-					float h_avg = avg_high_ticks()   * TIM_TICK_US;   // µs
-					float f_avg = 1e6f / p_avg;                       // Hz
-					float d_avg = 100.0f * h_avg / p_avg;             // %
-
-					printf("n=%u  T=%.3f us  high=%.3f us  f=%.3f Hz  D=%.2f %%   \r",
-						   avg_count, p_avg, h_avg, f_avg, d_avg);
-				}
-
-	            delay_ms(200);       // throttle the output
-	            ICValid = 0;         // discard captures that arrived during the delay
-	        }
-	    }
-}
