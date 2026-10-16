@@ -2,77 +2,13 @@
 #include "stm32f30x.h"
 #include "gpio.h"
 
-// Datasheet table 14: PA5, TIM2_CH1
-void GPIO_set_AF_PA5(void)
-{
-    GPIO_InitTypeDef GPIO_InitStruct;
-
-    /* Enable clock for GPIOA */
-    RCC_AHBPeriphClockCmd(RCC_AHBPeriph_GPIOA, ENABLE);
-    GPIO_StructInit(&GPIO_InitStruct);
-    GPIO_InitStruct.GPIO_Mode  = GPIO_Mode_AF;
-    GPIO_InitStruct.GPIO_Pin   = GPIO_Pin_5;
-    GPIO_InitStruct.GPIO_PuPd  = GPIO_PuPd_DOWN;
-    GPIO_InitStruct.GPIO_Speed = GPIO_Speed_50MHz;
-    GPIO_Init(GPIOA, &GPIO_InitStruct);
-
-    GPIO_PinAFConfig(GPIOA, GPIO_PinSource5, GPIO_AF_1);  // GPIO_AF_1 :  OUT, TIM2, TIM15, TIM16, TIM17
-}
-
-//  22.2.4 TIM Driver: how to use it in Input Capture Mode
-void TIM2_PWMInput_Init(void)
-{
-    TIM_TimeBaseInitTypeDef TIM_InitStructure;
-    TIM_ICInitTypeDef       TIM_ICInitStructure;
-    NVIC_InitTypeDef        NVIC_InitStructure; // settings for one interrupt line in the NVIC (Nested Vectored Interrupt Controller)
-
-    RCC_APB1PeriphClockCmd(RCC_APB1Periph_TIM2, ENABLE);
-    GPIO_set_AF_PA5();
-
-    // Input capture: CH1 rising edge, CH2 configured automatically
-    // for the opposite edge on the same pin
-    TIM_ICStructInit(&TIM_ICInitStructure);
-    TIM_ICInitStructure.TIM_Channel     = TIM_Channel_1;
-    TIM_ICInitStructure.TIM_ICPolarity  = TIM_ICPolarity_Rising;
-    TIM_ICInitStructure.TIM_ICSelection = TIM_ICSelection_DirectTI;
-
-    // From page 520 //#define:  TIM_ICPSC_DIV1 ((uint16_t)0x0000)
-    TIM_ICInitStructure.TIM_ICPrescaler = TIM_ICPSC_DIV1; // Capture performed each time an edge is detected on the capture input.
-    TIM_ICInitStructure.TIM_ICFilter    = 0; // no filter, we can play around with this later
-    TIM_PWMIConfig(TIM2, &TIM_ICInitStructure);
-
-    // Reset the counter on every rising edge of TI1
-    TIM_SelectInputTrigger(TIM2, TIM_TS_TI1FP1);
-    TIM_SelectSlaveMode(TIM2, TIM_SlaveMode_Reset);
-    TIM_SelectMasterSlaveMode(TIM2, TIM_MasterSlaveMode_Enable);
-
-
-    // Time base: 1 MHz tick, 32-bit counter
-    TIM_TimeBaseStructInit(&TIM_InitStructure);
-    TIM_InitStructure.TIM_Prescaler     = 71;
-    TIM_InitStructure.TIM_CounterMode   = TIM_CounterMode_Up;
-    TIM_InitStructure.TIM_Period        = 0xFFFFFFFF; // Counts up to max (overflow) Auto reload = period
-    TIM_InitStructure.TIM_ClockDivision = TIM_CKD_DIV1; // no clock division
-    TIM_TimeBaseInit(TIM2, &TIM_InitStructure);
-
-    // Interrupt on CC1
-    NVIC_InitStructure.NVIC_IRQChannel                   = TIM2_IRQn;
-    NVIC_InitStructure.NVIC_IRQChannelPreemptionPriority = 0;
-    NVIC_InitStructure.NVIC_IRQChannelSubPriority        = 0;
-    NVIC_InitStructure.NVIC_IRQChannelCmd                = ENABLE;
-    NVIC_Init(&NVIC_InitStructure);
-
-    TIM_ITConfig(TIM2, TIM_IT_CC1, ENABLE); //  Enables or disables the specified TIM interrupts. (TIM Capture Compare 1 Interrupt source )
-    TIM_Cmd(TIM2, ENABLE); // Enable the entire TIM counter
-}
-
 #define TIM_TICK_US  1.0f    // (PSC + 1) / 72 MHz = 1 micro second
 
 volatile uint32_t ICValue1, ICValue2; // Initialize variables to store last readings of the CCR1 and CCR2
 volatile uint8_t  ICValid = 0; //Flag to see if new reading is available
 
-// ISR = Interrupt Service Routine.
 void TIM2_IRQHandler(void) {
+	// ISR = Interrupt Service Routine.
     TIM_ClearITPendingBit(TIM2, TIM_IT_CC1);
 
     ICValue1 = TIM_GetCapture1(TIM2); // Period from CCR1
@@ -80,8 +16,8 @@ void TIM2_IRQHandler(void) {
     ICValid = 1;
 }
 
+// Code for calculating running average
 #define AVG_N 10
-
 static uint32_t pbuf[AVG_N], hbuf[AVG_N];
 static uint64_t psum = 0, hsum = 0;
 static uint8_t  avg_idx = 0, avg_count = 0;

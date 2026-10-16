@@ -29,5 +29,7 @@ void TIM16_init_10kHz(void);
 void TIM16_PWM_init(void);
 void GPIO_set_AF1_PA6(void);
 void GPIO_set_AF1_PB11(void);
+void GPIO_set_AF_PA5(void);
+void TIM2_PWMInput_Init(void);
 
 #endif /* TIMER_H_ */
