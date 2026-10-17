@@ -106,8 +106,6 @@ void exercise_6_1(void) {
 
 	        if (current_joystick_state & JOYSTICK_DOWN) {     // reset instrument
 	            avg_reset();
-
-
 	            ICValid = 0;
 	            printf("\r\n--- reset ---\r\n");
 	        }
